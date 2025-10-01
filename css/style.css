@@ -1,0 +1,99 @@
+:root {
+  --bg: #0f1115;
+  --panel: #151925;
+  --text: #e8ecf1;
+  --muted: #a8b3c2;
+  --accent: #6fd3ff;
+  --accent2: #a3ffa8;
+  --danger: #ff7a7a;
+  --line: #2a3144;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, "Noto Sans JP", sans-serif;
+  color: var(--text);
+  background: radial-gradient(1200px 600px at 20% -10%, #1a2030 0%, #0f1115 60%);
+}
+
+.app-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 20px; border-bottom: 1px solid var(--line);
+  background: rgba(21,25,37,0.85); backdrop-filter: blur(6px);
+  position: sticky; top: 0; z-index: 5;
+}
+
+h1 { margin: 0; font-size: 20px; letter-spacing: .3px; }
+.badge {
+  font-size: 12px; margin-left: 8px; padding: 2px 6px;
+  border-radius: 6px; background: var(--line); color: var(--muted);
+}
+
+.actions { display: flex; gap: 10px; align-items: center; }
+button, .btn, .file-btn {
+  background: #1d2333; color: var(--text); border: 1px solid var(--line);
+  padding: 8px 12px; border-radius: 10px; cursor: pointer; text-decoration: none;
+}
+button:hover, .btn:hover, .file-btn:hover { border-color: var(--accent); }
+.file-btn { position: relative; overflow: hidden; display: inline-block; }
+.file-btn input[type=file] {
+  position: absolute; inset: 0; opacity: 0; cursor: pointer;
+}
+
+.layout { display: grid; grid-template-columns: 340px 1fr; min-height: calc(100vh - 60px); }
+.sidebar { border-right: 1px solid var(--line); background: linear-gradient(180deg, #121827, #10141f); }
+.canvas-wrap { position: relative; }
+
+.panel { padding: 16px; border-bottom: 1px solid var(--line); }
+.panel h2 { margin: 0 0 12px; font-size: 16px; color: var(--accent); }
+.field { display: grid; gap: 6px; margin-bottom: 12px; }
+select, input[type=number] {
+  background: #0f1422; color: var(--text); border: 1px solid var(--line); padding: 8px; border-radius: 8px;
+}
+
+.results { margin-top: 12px; }
+.results h3 { margin: 6px 0; font-size: 14px; color: var(--muted); }
+.stat { font-size: 14px; margin-bottom: 8px; }
+.path { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; color: var(--muted); }
+
+.node-info { font-size: 13px; color: var(--muted); line-height: 1.6; }
+.node-info .kv { display: grid; grid-template-columns: 90px 1fr; gap: 6px; }
+.node-info .title { color: var(--text); font-weight: 600; }
+
+.tips { margin: 8px 0 0 18px; padding: 0; }
+.tips li { margin: 6px 0; color: var(--muted); }
+
+svg { width: 100%; height: calc(100vh - 60px); background: transparent; }
+
+.link {
+  stroke: #6b7280; stroke-opacity: 0.6; stroke-width: 1.6;
+}
+.link.highlight {
+  stroke: var(--accent2); stroke-width: 4px; stroke-opacity: 1;
+  filter: drop-shadow(0 0 6px rgba(163,255,168,0.6));
+}
+
+.node circle {
+  stroke: #0c0f18; stroke-width: 2px; cursor: grab;
+}
+.node circle:active { cursor: grabbing; }
+
+.node text {
+  fill: var(--text); font-size: 11px; pointer-events: none; user-select: none;
+  paint-order: stroke; stroke: rgba(15,17,21,0.8); stroke-width: 3px;
+}
+
+footer .footer {
+  text-align: center; padding: 12px; border-top: 1px solid var(--line);
+  background: rgba(21,25,37,0.65);
+}
+
+/* 経路強調の点滅 */
+@keyframes pulse {
+  0% { stroke-opacity: 1; }
+  50% { stroke-opacity: 0.35; }
+  100% { stroke-opacity: 1; }
+}
+.link.pulse { animation: pulse 1.4s ease-in-out infinite; }
