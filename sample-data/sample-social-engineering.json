@@ -1,0 +1,38 @@
+{
+  "meta": { "title": "Social Engineering Attack", "author": "ipusiron", "created_at": "2025-10-01" },
+  "nodes": [
+    { "id": "attacker",        "type": "person",  "label": "攻撃者",           "vuln": 0.90, "importance": 0.05 },
+    { "id": "contractor",      "type": "person",  "label": "契約社員",         "vuln": 0.80, "importance": 0.50 },
+    { "id": "employee",        "type": "person",  "label": "一般社員",         "vuln": 0.70, "importance": 0.60 },
+    { "id": "admin_staff",     "type": "person",  "label": "管理者",           "vuln": 0.50, "importance": 0.90 },
+    { "id": "ceo",             "type": "person",  "label": "社長",             "vuln": 0.40, "importance": 1.00 },
+    { "id": "employee_pc",     "type": "device",  "label": "社員PC",           "vuln": 0.60, "importance": 0.60 },
+    { "id": "admin_pc",        "type": "device",  "label": "管理者PC",         "vuln": 0.40, "importance": 0.85 },
+    { "id": "ceo_pc",          "type": "device",  "label": "社長PC",           "vuln": 0.40, "importance": 1.00 },
+    { "id": "email_server",    "type": "server",  "label": "メールサーバー",   "vuln": 0.45, "importance": 0.70 },
+    { "id": "file_server",     "type": "server",  "label": "ファイルサーバー", "vuln": 0.50, "importance": 0.90 },
+    { "id": "ad_server",       "type": "server",  "label": "ADサーバー",       "vuln": 0.30, "importance": 0.95 },
+    { "id": "phishing_email",  "type": "account", "label": "フィッシングメール", "vuln": 0.85, "importance": 0.30 },
+    { "id": "compromised_acc", "type": "account", "label": "侵害アカウント",   "vuln": 0.75, "importance": 0.50 }
+  ],
+  "edges": [
+    { "source": "attacker",        "target": "phishing_email",  "weight": 0.5 },
+    { "source": "phishing_email",  "target": "contractor",      "weight": 0.8 },
+    { "source": "phishing_email",  "target": "employee",        "weight": 1.0 },
+    { "source": "contractor",      "target": "compromised_acc", "weight": 1.2 },
+    { "source": "employee",        "target": "compromised_acc", "weight": 1.0 },
+    { "source": "employee",        "target": "employee_pc",     "weight": 0.6 },
+    { "source": "compromised_acc", "target": "employee_pc",     "weight": 0.8 },
+    { "source": "employee_pc",     "target": "email_server",    "weight": 1.2 },
+    { "source": "employee_pc",     "target": "file_server",     "weight": 1.5 },
+    { "source": "employee",        "target": "admin_staff",     "weight": 2.0 },
+    { "source": "admin_staff",     "target": "admin_pc",        "weight": 0.7 },
+    { "source": "admin_pc",        "target": "ad_server",       "weight": 1.8 },
+    { "source": "admin_pc",        "target": "file_server",     "weight": 1.3 },
+    { "source": "admin_staff",     "target": "ceo",             "weight": 2.5 },
+    { "source": "ceo",             "target": "ceo_pc",          "weight": 0.5 },
+    { "source": "ceo_pc",          "target": "file_server",     "weight": 1.0 },
+    { "source": "file_server",     "target": "ad_server",       "weight": 2.0 }
+  ],
+  "attack_goals": ["ad_server", "ceo_pc"]
+}

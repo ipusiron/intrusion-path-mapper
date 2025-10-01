@@ -1,0 +1,40 @@
+{
+  "meta": { "title": "Physical Intrusion", "author": "ipusiron", "created_at": "2025-10-01" },
+  "nodes": [
+    { "id": "outside",          "type": "gateway", "label": "屋外",               "vuln": 0.40, "importance": 0.10 },
+    { "id": "entrance_gate",    "type": "gateway", "label": "入場ゲート",         "vuln": 0.30, "importance": 0.20 },
+    { "id": "reception",        "type": "room",    "label": "受付",               "vuln": 0.30, "importance": 0.40 },
+    { "id": "corridor_1f",      "type": "room",    "label": "1F廊下",             "vuln": 0.10, "importance": 0.10 },
+    { "id": "elevator",         "type": "room",    "label": "エレベーター",       "vuln": 0.20, "importance": 0.30 },
+    { "id": "corridor_2f",      "type": "room",    "label": "2F廊下",             "vuln": 0.10, "importance": 0.10 },
+    { "id": "ic_card_door",     "type": "room",    "label": "ICカード扉",         "vuln": 0.50, "importance": 0.70 },
+    { "id": "server_room_door", "type": "room",    "label": "サーバールーム扉",   "vuln": 0.40, "importance": 0.90 },
+    { "id": "server_room",      "type": "room",    "label": "サーバールーム",     "vuln": 0.20, "importance": 0.95 },
+    { "id": "window_1f",        "type": "gateway", "label": "1F窓",               "vuln": 0.60, "importance": 0.40 },
+    { "id": "window_2f",        "type": "gateway", "label": "2F窓",               "vuln": 0.70, "importance": 0.50 },
+    { "id": "receptionist",     "type": "person",  "label": "受付員",             "vuln": 0.60, "importance": 0.40 },
+    { "id": "employee",         "type": "person",  "label": "一般社員",           "vuln": 0.70, "importance": 0.60 },
+    { "id": "janitor",          "type": "person",  "label": "清掃員",             "vuln": 0.60, "importance": 0.30 }
+  ],
+  "edges": [
+    { "source": "outside",          "target": "entrance_gate",    "weight": 1.0 },
+    { "source": "outside",          "target": "window_1f",        "weight": 2.5 },
+    { "source": "outside",          "target": "window_2f",        "weight": 3.0 },
+    { "source": "entrance_gate",    "target": "reception",        "weight": 0.5 },
+    { "source": "reception",        "target": "receptionist",     "weight": 0.8 },
+    { "source": "reception",        "target": "corridor_1f",      "weight": 0.6 },
+    { "source": "receptionist",     "target": "corridor_1f",      "weight": 1.2 },
+    { "source": "window_1f",        "target": "corridor_1f",      "weight": 1.5 },
+    { "source": "corridor_1f",      "target": "elevator",         "weight": 0.4 },
+    { "source": "corridor_1f",      "target": "employee",         "weight": 0.7 },
+    { "source": "elevator",         "target": "corridor_2f",      "weight": 0.5 },
+    { "source": "window_2f",        "target": "corridor_2f",      "weight": 1.8 },
+    { "source": "corridor_2f",      "target": "ic_card_door",     "weight": 1.0 },
+    { "source": "corridor_2f",      "target": "janitor",          "weight": 0.6 },
+    { "source": "employee",         "target": "ic_card_door",     "weight": 1.5 },
+    { "source": "janitor",          "target": "ic_card_door",     "weight": 2.0 },
+    { "source": "ic_card_door",     "target": "server_room_door", "weight": 0.8 },
+    { "source": "server_room_door", "target": "server_room",      "weight": 1.2 }
+  ],
+  "attack_goals": ["server_room"]
+}

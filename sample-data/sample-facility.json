@@ -6,7 +6,7 @@
     { "id": "lobby","type": "room",    "label": "ロビー",       "vuln": 0.35, "importance": 0.30 },
     { "id": "pc1",  "type": "device",  "label": "社員PC-1",     "vuln": 0.65, "importance": 0.40 },
     { "id": "pc2",  "type": "device",  "label": "社員PC-2",     "vuln": 0.55, "importance": 0.40 },
-    { "id": "srv1", "type": "server",  "label": "ファイルサーバ","vuln": 0.50, "importance": 0.90 }
+    { "id": "srv1", "type": "server",  "label": "ファイルサーバー","vuln": 0.50, "importance": 0.90 }
   ],
   "edges": [
     { "source": "ext",  "target": "entr", "weight": 1.0 },
