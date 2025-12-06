@@ -1,11 +1,40 @@
 <!--
 ---
-title: Intrusion Path Mapper
-category: attack-path
-difficulty: 2
-description: Interactive tool to simulate and visualize intrusion paths in simplified facility or network maps. Built with D3.js, runs entirely client-side.
-tags: [attack-path, visualization, d3, education, javascript]
-demo: https://ipusiron.github.io/intrusion-path-mapper/
+id: day083
+slug: intrusion-path-mapper
+
+title: "Intrusion Path Mapper"
+
+subtitle_ja: "侵入経路マッピングツール"
+subtitle_en: "Attack Path Visualization & Simulation Tool"
+
+description_ja: "建物やネットワークの簡易マップを入力し、ブラウザー上で攻撃者の侵入経路をシミュレーション・可視化する教育用ツール。Yen's K-shortest pathsアルゴリズムで複数の侵入ルート候補を発見し、成功確率とリスク指標を自動計算。"
+description_en: "Educational tool to simulate and visualize intrusion paths in simplified facility or network maps. Uses Yen's K-shortest paths algorithm to find multiple attack routes with success probability and risk metrics. Built with D3.js, runs entirely client-side."
+
+category_ja:
+  - 物理的セキュリティ
+  - 攻撃経路分析
+  - セキュリティ可視化
+category_en:
+  - Physical Security
+  - Attack Path Analysis
+  - Security Visualization
+
+difficulty: 3
+
+tags:
+  - attack-path
+  - visualization
+  - d3
+  - graph-algorithm
+  - risk-assessment
+  - red-team
+  - education
+
+repo_url: "https://github.com/ipusiron/intrusion-path-mapper"
+demo_url: "https://ipusiron.github.io/intrusion-path-mapper/"
+
+hub: true
 ---
 -->
 
