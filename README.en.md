@@ -12,7 +12,7 @@ English · [日本語](README.md)
 
 **Intrusion Path Mapper** is an educational tool that maps buildings or networks as nodes and edges, then finds and visualizes an attacker's intrusion paths in the browser.
 
-Give each node the probability that it can be breached (vuln), and the tool ranks the paths by success probability and shows the success probability and risk of each one. You can also rank them by cost, which uses how easy each move is (weight), and see why the two rankings disagree.
+Give each node the probability that it can be breached (vuln), and the tool ranks the paths by success probability and shows the success probability and risk of each one. You can also rank them by cost, which uses how easy each move is (weight), and see why the two rankings disagree. It also compares risk by target, finds the minimum set of nodes that cuts every path (effect of countermeasures), and lets you try what-if changes to vuln on the spot.
 
 Physical security and cybersecurity fit on one map. All data is processed in the browser and never sent anywhere.
 
