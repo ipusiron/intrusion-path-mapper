@@ -44,6 +44,14 @@ Try it directly in your browser.
 >
 >*Risk by target: the employee ranks above the server room*
 
+>![The effect-of-countermeasures section and the minimum set that cuts every path](assets/en/screenshot5.png)
+>
+>*Countermeasures: the IC card door alone cuts every path*
+
+>![The what-if slider lowering the vuln of the 2F window](assets/en/screenshot6.png)
+>
+>*What-if: with the 2F window at 0.2, the 1F window path comes first*
+
 ---
 
 ## ✨ Features
@@ -55,6 +63,8 @@ Try it directly in your browser.
 - Highlight the selected path on the map and step through it with the ▶ button. Everything off the path can be dimmed
 - Mark the nodes that all paths shown pass through with dashed rings and list them in the results
 - Risk by target: for every node reachable from the start, compute the best success probability × importance and list the top 10 (the current target is added at the end even when it ranks 11th or lower)
+- Effect of countermeasures: mark the minimum set of nodes that cuts every path (a minimum vertex cut) with red rings, and list the top success probability after blocking each node of the top path
+- What-if: move a node's vuln with a slider to recompute the paths, the countermeasures and the risk by target on the spot, and see how the top success probability changes (you can reset it)
 - Add, edit and delete nodes and edges in the browser (nodes: type, vuln, importance, color and English label; edges: weight. The reverse edge can be added at the same time)
 - Import and export JSON (the file is validated on import and every fix is reported)
 - Four preset scenarios (facility intrusion, office network, physical intrusion, social engineering)
@@ -80,7 +90,9 @@ Try it directly in your browser.
    - Click a path to highlight it on the map ("Dim everything off the path" dims the rest)
    - Nodes with a dashed ring are on all paths shown
    - Press ▶ to step from the start to the target
+   - Use "Effect of countermeasures" to see the minimum set that cuts every path and the effect of blocking one node
    - Use "Risk by target" to compare the risk of other nodes as targets, and "Search this target" to switch the target
+   - Move the slider in the node details to change vuln and watch the top success probability (this changes the map; "Reset to" restores it)
 4. Edit the map (optional)
    - Add elements with "+ Add node" and "+ Add edge" ("Also add the reverse edge" makes a two-way edge)
    - Click a node and use "✏️" to edit or "🗑️" to delete it. "Set as start" and "Set as target" in the node details fill the selectors
@@ -157,7 +169,17 @@ Yen's algorithm (1971) finds K loopless paths in order of length. It finds the f
 
 ### Nodes on all paths shown
 
-When two or more paths are shown, the nodes that every path passes through (other than the start and the target) get a dashed ring. In the physical intrusion map (by success probability) they are 2F corridor, IC card door and Server room door for K=3, and IC card door and Server room door for K=5 and K=10. This is about the K paths shown, so blocking such a node does not necessarily cut every path.
+When two or more paths are shown, the nodes that every path passes through (other than the start and the target) get a dashed ring. In the physical intrusion map (by success probability) they are 2F corridor, IC card door and Server room door for K=3, and IC card door and Server room door for K=5 and K=10. This is about the K paths shown, so blocking such a node does not necessarily cut every path (the set that cuts every path is found in "Effect of countermeasures" below).
+
+### Effect of countermeasures (blocking one node and the minimum vertex cut)
+
+Each node in the middle of the top path is blocked in turn, and the resulting top success probability is listed. Blocking a node that is not on the top path leaves the top path as it is, so only the nodes in the middle of the top path need to be checked. In the physical intrusion map, blocking the 2F corridor drops the top to 1.60% (−40.0%), the 2F window to 1.95% (−26.7%), and blocking the IC card door or the server room door makes the target unreachable.
+
+The minimum set of nodes that cuts every path (a minimum vertex cut) comes from a maximum flow in which each node is split into an entry and an exit joined with capacity 1 (by Menger's theorem, the maximum number of paths that share no node equals the minimum number of nodes needed to cut them). The minimum set is not always unique, so the one closest to the start is shown. In all four samples it is a single node: Entrance for facility intrusion, Firewall for the office network attack, IC card door for physical intrusion and Phishing email for social engineering.
+
+### What-if (moving vuln)
+
+Moving vuln with the slider in the node details recomputes the paths, the countermeasures and the risk by target with the conditions of the last search (start, target, order and K), and shows "Top success probability: before → after". In the physical intrusion map, lowering the vuln of the 2F window from 0.7 to 0.2 changes the top path to Outside→1F window→1F corridor→Elevator→2F corridor→IC card door→Server room door→Server room, and the success probability from 2.66% to 1.95%. It changes the value in the map itself, so it is also exported. "Reset to" restores it.
 
 ### Preset scenarios
 
@@ -225,9 +247,9 @@ As a guide for edge weights: 0.5 = open and easy, 1.0 = standard, 2.0 = multi-fa
 
 Ways of using this tool in particular
 - Put "the cheapest path" and "the easiest path" side by side: facility staff or students rank the same map by lowest cost and by highest success probability and discuss why the top path changes. In the physical intrusion map, the path through the 2F window (2.66%) is about nine times easier than the front-door path (0.292%)
-- If you can watch only one spot: draw a floor plan of your home or a small office and look for nodes whose dashed ring (on all paths shown) stays as K grows. In the physical intrusion map, the IC card door and the server room door remain even at K=10, which makes them candidates for a single camera or alarm (the result is about the paths shown and does not guarantee that every path is cut)
+- If you can watch only one spot: draw a floor plan of your home or a small office and look at the minimum set in "Effect of countermeasures" and at the dashed rings that stay as K grows. In the physical intrusion map, the minimum set is the IC card door alone, and the IC card door and the server room door remain even at K=10, so either is a candidate for a single camera or alarm (the minimum set is not always unique)
 - Read attack paths as dependency paths and look for single points of failure: model an approval chain (request → manager → director → accounting) or a supply chain (parts → factory → warehouse → store) as nodes, with vuln as the probability that each stage works. The success probability becomes the probability of getting all the way through, and the dashed rings become single points of failure that stop everything when they stop (failures are assumed to be independent; capacity and time are not modeled)
-- A defense budget game (tabletop exercise): the attack side builds a map, and the defense side spends a budget of 10 points, one point per 0.1 lowered vuln. The defense competes on how far it can lower the success probability of the top path, and sees another path take first place as soon as one path is hardened
+- A defense budget game (tabletop exercise): the attack side builds a map, and the defense side spends a budget of 10 points, one point per 0.1 lowered vuln. Each move of the what-if slider updates "Top success probability: before → after", so the defense competes on how far it can lower the top path and sees another path take first place as soon as one path is hardened. The blocking table in "Effect of countermeasures" hints where to spend the budget
 - The riskiest node is not always the most important asset: use risk by target to decide what to protect first. In the physical intrusion map (from Outside), the easy-to-reach employee ranks first (39.9% × 0.6 = 0.239), while the most important server room (2.66% × 0.95 = 0.0253) ranks 11th. This is material for discussing whether to train people before hardening equipment
 - Read it as information: `−ln(vuln)` is the self-information (in nats) of an event with probability vuln, so the top path in the success-probability order is the path with the smallest total surprise. The top path of the physical intrusion map totals 3.63 nats (5.23 bits), and its last step (the server room, vuln 0.2) accounts for 1.61 nats. Learning self-information first with [InfoQuantity Academy](https://ipusiron.github.io/infoquantity-academy/) (Day073) shows how the two ideas connect
 
@@ -272,7 +294,7 @@ npm test
 
 - Runs on Node.js 22 or later with no dependencies (`node --test`)
 - GitHub Actions runs it on every push and pull request
-- Logic (`js/ipm-core.js`): validation and normalization, export and re-import round trips, Yen's algorithm matching a brute-force enumeration of all simple paths (cost order and success-probability order), risk by target matching the brute force, adding, editing and deleting edges, metrics and display digits
+- Logic (`js/ipm-core.js`): validation and normalization, export and re-import round trips, Yen's algorithm matching a brute-force enumeration of all simple paths (cost order and success-probability order), risk by target matching the brute force, blocking one node matching the brute force, the minimality of the minimum vertex cut (every pair of every sample), adding, editing and deleting edges, metrics and display digits
 - Page and documents: CSP and HTML structure, SHA-256 of the self-hosted D3, color contrast (4.5:1 or more), matching Japanese and English dictionaries with no Japanese in the English strings, README numbers and directory structure
 
 ---
@@ -328,11 +350,15 @@ intrusion-path-mapper/
 │   │   ├── screenshot.png                # Physical intrusion by highest success probability
 │   │   ├── screenshot2.png               # The same map by lowest cost
 │   │   ├── screenshot3.png               # After a path animation finished
-│   │   └── screenshot4.png               # Risk by target
+│   │   ├── screenshot4.png               # Risk by target
+│   │   ├── screenshot5.png               # Effect of countermeasures and the minimum set
+│   │   └── screenshot6.png               # What-if slider lowering a vuln
 │   ├── screenshot.png                    # Japanese: physical intrusion by highest success probability
 │   ├── screenshot2.png                   # Japanese: the same map by lowest cost
 │   ├── screenshot3.png                   # Japanese: after a path animation finished
-│   └── screenshot4.png                   # Japanese: risk by target
+│   ├── screenshot4.png                   # Japanese: risk by target
+│   ├── screenshot5.png                   # Japanese: effect of countermeasures and the minimum set
+│   └── screenshot6.png                   # Japanese: what-if slider lowering a vuln
 ├── css/                                  # Stylesheets
 │   └── style.css                         # Colors, layout and responsive rules
 ├── js/                                   # JavaScript

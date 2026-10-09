@@ -72,6 +72,8 @@ const HEADINGS = [
   ["### 2つの並べ方", "### Two orders"],
   ["### K本の経路（Yenのアルゴリズム）", "### K paths (Yen's algorithm)"],
   ["### 表示中の経路がすべて通るノード", "### Nodes on all paths shown"],
+  ["### 対策の効果（1つ塞ぐ・最小頂点カット）", "### Effect of countermeasures (blocking one node and the minimum vertex cut)"],
+  ["### もしも（vulnを動かす）", "### What-if (moving vuln)"],
   ["### プリセットシナリオ", "### Preset scenarios"],
   ["### JSONフォーマット", "### JSON format"],
   ["### ノードの種類と値の例", "### Node types and example values"],
@@ -231,11 +233,11 @@ test("README から参照するファイル（相対リンク・画像）が実�
   }
 });
 
-test("スクリーンショットは日本語4枚・英語4枚で、assets/ の PNG はどれも README から参照される", () => {
+test("スクリーンショットは日本語6枚・英語6枚で、assets/ の PNG はどれも README から参照される", () => {
   const images = text => [...text.matchAll(/!\[[^\]]+\]\(([^)]+\.png)\)/g)].map(m => m[1]);
-  const four = dir => [1, 2, 3, 4].map(n => `${dir}screenshot${n === 1 ? "" : n}.png`);
-  assert.deepEqual(images(readme), four("assets/"));
-  assert.deepEqual(images(readmeEn), four("assets/en/"));
+  const six = dir => [1, 2, 3, 4, 5, 6].map(n => `${dir}screenshot${n === 1 ? "" : n}.png`);
+  assert.deepEqual(images(readme), six("assets/"));
+  assert.deepEqual(images(readmeEn), six("assets/en/"));
   const referenced = new Set([...images(readme), ...images(readmeEn)]);
   const pngs = [
     ...readdirSync(path.join(ROOT, "assets")).filter(f => f.endsWith(".png")).map(f => `assets/${f}`),
@@ -250,7 +252,7 @@ test("スクリーンショットは日本語4枚・英語4枚で、assets/ の 
   }
   for (const [, text] of BOTH) {
     const captions = [...text.matchAll(/^>\*(.+)\*$/gm)].map(m => m[1]);
-    assert.equal(captions.length, 4);
+    assert.equal(captions.length, 6);
   }
 });
 
@@ -271,6 +273,10 @@ test("表示中の経路がすべて通るノードの例（物理的侵入経�
   assert.deepEqual(common(10, "id"), common(5, "id"));
   assert.ok(readme.includes(`K=3で${common(3, "label").join("・")}、K=5とK=10で${common(5, "label").join("・")}です`));
   assert.ok(readme.includes(`K=10でも${common(10, "label").join("と")}が残り`));
+  const cut = core.minVertexCut(g, "outside", "server_room");
+  assert.deepEqual(cut.nodes.map(i => g.nodes[i].id), ["ic_card_door"]);
+  assert.ok(readme.includes("最小の組はICカード扉1つで"));
+  assert.ok(readmeEn.includes("the minimum set is the IC card door alone"));
   const [a3, b3, c3] = common(3, "label_en");
   const [a5, b5] = common(5, "label_en");
   assert.ok(readmeEn.includes(`they are ${a3}, ${b3} and ${c3} for K=3, and ${a5} and ${b5} for K=5 and K=10`));
@@ -307,4 +313,43 @@ test("自己情報量の例（物理的侵入経路の1位）は計算部の出�
   assert.ok(readme.includes(`（サーバールーム、vuln ${last.vuln}）が${lastNats}ナット`));
   assert.ok(readmeEn.includes(`totals ${nats} nats (${bits} bits)`));
   assert.ok(readmeEn.includes(`(the server room, vuln ${last.vuln}) accounts for ${lastNats} nats`));
+});
+
+test("対策の効果の例（4サンプルの最小の組、物理的侵入経路で1つ塞ぐ）は計算部の出力と一致する（日英）", () => {
+  const cutOf = file => {
+    const g = sample(file);
+    const { start, goal } = core.defaultEndpoints(g);
+    const c = core.minVertexCut(g, start, goal);
+    return c.nodes.map(i => g.nodes[i]);
+  };
+  const cuts = ["sample-facility", "sample-office-network", "sample-physical-intrusion", "sample-social-engineering"].map(cutOf);
+  for (const c of cuts) assert.equal(c.length, 1);
+  const [fa, of, ph, so] = cuts.map(c => c[0]);
+  assert.ok(readme.includes(`施設侵入は${fa.label}、オフィスネットワーク攻撃は${of.label}、物理的侵入経路は${ph.label}、ソーシャルエンジニアリングは${so.label}です`));
+  const enCuts = `${fa.label_en} for facility intrusion, ${of.label_en} for the office network attack, `
+    + `${ph.label_en} for physical intrusion and ${so.label_en} for social engineering`;
+  assert.ok(readmeEn.includes(enCuts));
+  const g = sample("sample-physical-intrusion");
+  const impact = core.blockImpact(g, "outside", "server_room");
+  const row = id => impact.rows.find(r => r.id === id);
+  const change = r => `−${(r.drop / r.before * 100).toFixed(1)}%`;
+  assert.deepEqual([core.formatPercent(row("corridor_2f").after), change(row("corridor_2f"))], ["1.60%", "−40.0%"]);
+  assert.deepEqual([core.formatPercent(row("window_2f").after), change(row("window_2f"))], ["1.95%", "−26.7%"]);
+  assert.ok(readme.includes("2F廊下を塞ぐと1位は1.60%（−40.0%）、2F窓では1.95%（−26.7%）"));
+  assert.ok(readmeEn.includes("blocking the 2F corridor drops the top to 1.60% (−40.0%), the 2F window to 1.95% (−26.7%)"));
+  assert.equal(row("ic_card_door").after, 0);
+  assert.equal(row("server_room_door").after, 0);
+});
+
+test("もしもの例（2F窓のvulnを0.2にする）は計算部の出力と一致する（日英）", () => {
+  const g = sample("sample-physical-intrusion");
+  const before = core.findPaths(g, "outside", "server_room", { mode: "prob", k: 1 })[0];
+  const w = g.nodes.find(n => n.id === "window_2f");
+  assert.equal(w.vuln, 0.7);
+  w.vuln = 0.2;
+  const after = core.findPaths(g, "outside", "server_room", { mode: "prob", k: 1 })[0];
+  assert.deepEqual([core.formatPercent(before.successProb), core.formatPercent(after.successProb)], ["2.66%", "1.95%"]);
+  assert.ok(readme.includes(`1位は${after.path.map(i => g.nodes[i].label).join("→")}に替わり、成功確率は2.66%から1.95%になります`));
+  const enPath = after.path.map(i => g.nodes[i].label_en).join("→");
+  assert.ok(readmeEn.includes(`changes the top path to ${enPath}, and the success probability from 2.66% to 1.95%`));
 });

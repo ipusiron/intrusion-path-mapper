@@ -88,6 +88,14 @@
           <div id="pathsList" class="paths-list"></div>
         </div>
 
+        <div id="impact" class="impact" hidden>
+          <h3 data-i18n="impact.title">対策の効果</h3>
+          <p id="impactCut" class="impact-cut"></p>
+          <p id="impactListTitle" class="results-summary"></p>
+          <ol id="impactList" class="impact-list"></ol>
+          <p class="results-summary" data-i18n="impact.note">1位の経路に乗っていないノードを塞いでも、1位の成功確率は変わりません。最小の組は1通りとは限らず、開始に近い側を示します</p>
+        </div>
+
         <div id="targetRisk" class="target-risk" hidden>
           <h3 data-i18n="risk.title">目標ごとのリスク</h3>
           <p id="targetRiskNote" class="results-summary"></p>
@@ -144,6 +152,7 @@
           <div class="legend-item"><span class="legend-color type-gateway"></span> Gateway/Room</div>
           <div class="legend-item"><span class="legend-color type-node"></span> Other (node)</div>
           <div class="legend-item"><span class="legend-ring"></span> <span data-i18n="legend.common">表示中の経路がすべて通る</span></div>
+          <div class="legend-item"><span class="legend-ring cut"></span> <span data-i18n="legend.cut">すべての経路を断つ最小の組</span></div>
         </div>
       </div>
 

@@ -33,6 +33,10 @@ const kPathsInput = document.getElementById("kPaths");
 const pathsListEl = document.getElementById("pathsList");
 const resultsSummaryEl = document.getElementById("resultsSummary");
 const commonNodesEl = document.getElementById("commonNodes");
+const impactEl = document.getElementById("impact");
+const impactCut = document.getElementById("impactCut");
+const impactListTitle = document.getElementById("impactListTitle");
+const impactList = document.getElementById("impactList");
 const targetRiskEl = document.getElementById("targetRisk");
 const targetRiskNote = document.getElementById("targetRiskNote");
 const targetRiskList = document.getElementById("targetRiskList");
@@ -88,6 +92,9 @@ let currentPaths = []; // 探索の結果（findPaths の戻り値）
 let currentMode = "prob"; // 結果を出したときの並べ方
 let resultsShown = false; // 探索を実行したか（到達できない結果も含む）
 let riskStartId = null; // 目標ごとのリスクを求めた開始ノード
+let impact = null; // 対策の効果 {cut, block}（blockImpact と minVertexCut の戻り値）
+let lastSearch = null; // 直前の探索の条件 {sId, gId, mode, k, nodePenalty}（もしもで計算し直すときに使う）
+const whatifOriginals = new Map(); // もしもで動かしたノードの元の値 id → {vuln, baseline}
 let riskRows = []; // targetRisks の戻り値
 const RISK_ROWS_SHOWN = 10;
 let selectedPathIndex = 0; // 現在選択されている経路のインデックス
@@ -174,6 +181,7 @@ function setLocale(next) {
     stopAnimation();
     renderKPathsResult();
     renderTargetRisks();
+    renderImpact();
   } else {
     pathsListEl.replaceChildren(emptyState());
   }
@@ -205,6 +213,7 @@ function fallbackGraph() {
 /** 新しいマップに差し替える。開始・目標は既定に戻し、結果と選択を消す */
 function setGraph(graph) {
   data = graph;
+  whatifOriginals.clear();
   selectedNode = null;
   buildUIOptions(data.nodes, { keepSelection: false });
   renderNodeInfo(null);
@@ -457,9 +466,10 @@ function renderNodeInfo(n) {
     kv(t("info.label"), labelOf(n))
   );
   if (locale === "ja" && n.label_en) nodeInfoEl.append(kv(t("info.labelEn"), n.label_en));
+  const vulnRow = kv(t("info.vuln"), String(n.vuln));
   nodeInfoEl.append(
     kv(t("info.type"), n.type || "-"),
-    kv(t("info.vuln"), String(n.vuln)),
+    vulnRow,
     kv(t("info.importance"), String(n.importance))
   );
 
@@ -476,7 +486,7 @@ function renderNodeInfo(n) {
   toGoal.textContent = t("info.setGoal");
   toGoal.addEventListener("click", () => { goalSelect.value = n.id; });
   actions.append(toStart, toGoal);
-  nodeInfoEl.append(actions);
+  nodeInfoEl.append(actions, whatifBlock(n, vulnRow.lastChild));
 
   // 出ていくエッジ・入ってくるエッジ（キーボードでもエッジを編集・削除できるように）
   const { outgoing, incoming } = core.edgesOf(data, n.id);
@@ -484,6 +494,75 @@ function renderNodeInfo(n) {
     edgeList(t("info.outgoing", { n: outgoing.length }), outgoing, e => `→ ${labelOf(nodeById(e.target))} (${e.target})`),
     edgeList(t("info.incoming", { n: incoming.length }), incoming, e => `← ${labelOf(nodeById(e.source))} (${e.source})`)
   );
+}
+
+/**
+ * もしもの欄：vuln をスライダーで動かすと、直前の探索の条件で計算し直し、1位の成功確率の「元→いま」を示す。
+ * マップの値そのものを変える（エクスポートにも入る）ので、元の値に戻すボタンを付ける。
+ */
+function whatifBlock(n, vulnValueEl) {
+  const box = document.createElement("div");
+  box.className = "whatif";
+  const label = document.createElement("label");
+  label.htmlFor = "whatifRange";
+  label.textContent = t("whatif.label");
+  const row = document.createElement("div");
+  row.className = "whatif-row";
+  const range = document.createElement("input");
+  range.type = "range";
+  range.id = "whatifRange";
+  range.min = "0";
+  range.max = "1";
+  range.step = "0.05";
+  range.value = String(n.vuln);
+  const out = document.createElement("output");
+  out.id = "whatifValue";
+  out.htmlFor = "whatifRange";
+  out.textContent = n.vuln.toFixed(2);
+  row.append(range, out);
+  const reset = document.createElement("button");
+  reset.type = "button";
+  reset.id = "whatifReset";
+  reset.className = "small-btn";
+  const result = document.createElement("p");
+  result.id = "whatifResult";
+  result.className = "whatif-result";
+  result.setAttribute("aria-live", "polite");
+
+  const refresh = () => {
+    const orig = whatifOriginals.get(n.id);
+    reset.hidden = !orig;
+    if (orig) reset.textContent = t("whatif.reset", { v: orig.vuln });
+    const now = bestProbNow();
+    if (now === null) {
+      result.textContent = t("whatif.hint");
+      return;
+    }
+    if (!orig || orig.baseline === null) {
+      result.textContent = t("whatif.current", { after: core.formatPercent(now) });
+      return;
+    }
+    result.textContent = t("whatif.result", { before: core.formatPercent(orig.baseline), after: core.formatPercent(now) });
+  };
+  const apply = value => {
+    if (!whatifOriginals.has(n.id)) whatifOriginals.set(n.id, { vuln: n.vuln, baseline: bestProbNow() });
+    n.vuln = core.toUnit(value, n.vuln);
+    if (n.vuln === whatifOriginals.get(n.id).vuln) whatifOriginals.delete(n.id);
+    range.value = String(n.vuln);
+    out.textContent = n.vuln.toFixed(2);
+    vulnValueEl.textContent = String(n.vuln);
+    hidePopup();
+    rerunSearch();
+    refresh();
+  };
+  range.addEventListener("input", () => apply(range.value));
+  reset.addEventListener("click", () => {
+    const orig = whatifOriginals.get(n.id);
+    if (orig) apply(orig.vuln);
+  });
+  refresh();
+  box.append(label, row, reset, result);
+  return box;
 }
 
 function edgeList(heading, edges, describe) {
@@ -602,18 +681,69 @@ analyzeBtn.addEventListener("click", ()=>{
   kPathsInput.value = String(k);
 
   currentMode = rankModeSelect.value === "cost" ? "cost" : "prob";
-  currentPaths = core.findPaths(data, sId, gId, { mode: currentMode, k, nodePenalty });
+  lastSearch = { sId, gId, mode: currentMode, k, nodePenalty };
+  rerunSearch();
+  if (selectedNode) renderNodeInfo(selectedNode); // もしもの欄の「元→いま」を新しい探索に合わせる
+  revealResults();
+});
+
+/** 直前の探索の条件で、経路・目標ごとのリスク・対策の効果を計算し直して描く */
+function rerunSearch() {
+  if (!lastSearch) return;
+  const { sId, gId, mode, k, nodePenalty } = lastSearch;
+  if (!nodeById(sId) || !nodeById(gId)) return;
+  stopAnimation();
+  currentMode = mode;
+  currentPaths = core.findPaths(data, sId, gId, { mode, k, nodePenalty });
   resultsShown = true;
   selectedPathIndex = 0;
-  stopAnimation();
   renderKPathsResult();
 
   // 同じ開始ノードから、各ノードを目標にしたときのリスク（並べ方によらず成功確率で求める）
   riskStartId = sId;
   riskRows = core.targetRisks(data, sId);
   renderTargetRisks();
-  revealResults();
-});
+
+  // 対策の効果（1位の経路のノードを1つ塞ぐ、すべての経路を断つ最小の組）
+  impact = { cut: core.minVertexCut(data, sId, gId), block: core.blockImpact(data, sId, gId) };
+  renderImpact();
+}
+
+/** 直前の探索の開始と目標での、成功確率の最大値（探索していなければ null） */
+function bestProbNow() {
+  if (!lastSearch) return null;
+  const [top] = core.findPaths(data, lastSearch.sId, lastSearch.gId, { mode: "prob", k: 1 });
+  return top ? top.successProb : 0;
+}
+
+/** 対策の効果の欄と、最小の組の印（赤い輪） */
+function renderImpact() {
+  impactList.replaceChildren();
+  const show = impact !== null && impact.block.before > 0;
+  impactEl.hidden = !show;
+  markCutNodes();
+  if (!show) return;
+  const { cut, block } = impact;
+  impactCut.textContent = cut.direct
+    ? t("impact.cutDirect")
+    : t("impact.cut", { size: cut.size, list: cut.nodes.map(i => labelOf(data.nodes[i])).join(t("list.sep")) });
+  impactListTitle.textContent = t("impact.listTitle");
+  for (const row of block.rows) {
+    const li = document.createElement("li");
+    const label = labelOf(nodeById(row.id));
+    const before = core.formatPercent(row.before);
+    li.textContent = row.after > 0
+      ? t("impact.row", { label, before, after: core.formatPercent(row.after), change: `−${(row.drop / row.before * 100).toFixed(1)}%` })
+      : t("impact.rowCut", { label, before });
+    impactList.append(li);
+  }
+}
+
+function markCutNodes() {
+  if (!nodeSel) return;
+  const ids = new Set(impact && !impact.cut.direct ? impact.cut.nodes.map(i => data.nodes[i].id) : []);
+  nodeSel.classed("node-cut", n => ids.has(n.id));
+}
 
 /** 目標ごとのリスクの一覧（上位10件）。行ごとに「成功確率×重要度＝リスク」を示す */
 function renderTargetRisks() {
@@ -754,6 +884,9 @@ function resetResults() {
   riskStartId = null;
   riskRows = [];
   renderTargetRisks();
+  impact = null;
+  renderImpact();
+  lastSearch = null;
   clearHighlight();
   markCommonNodes();
 }
@@ -1003,6 +1136,7 @@ function animatePath(pathIndex){
 
 /** マップを書き換えたあとの共通処理。開始・目標の選択は残し、結果は消す */
 function afterEdit() {
+  whatifOriginals.clear(); // 編集で値を確定したので、もしもの「元の値」は持たない
   buildUIOptions(data.nodes, { keepSelection: true });
   drawGraph(data, { fit: false });
   resetResults();
