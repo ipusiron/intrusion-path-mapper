@@ -219,13 +219,42 @@ test("セキュリティの節は実装どおり（無効なヘッダーを実�
   }
 });
 
-test("README から参照するファイル（相対リンク）が実在する", () => {
+test("README から参照するファイル（相対リンク・画像）が実在する", () => {
   for (const [name, text] of BOTH) {
     const links = [...text.matchAll(/\]\(((?!https?:)[^)#]+)\)/g)].map(m => m[1]);
-    assert.ok(links.length >= 4, name);
-    for (const rel of links.filter(l => !l.endsWith(".png"))) {
+    assert.ok(links.length >= 6, name); // 言語の行・画像3枚・DEVELOPER.md・LICENSE
+    for (const rel of links) {
       assert.doesNotThrow(() => readFileSync(path.join(ROOT, rel)), `${name}: ${rel}`);
     }
   }
-  assert.ok(readdirSync(path.join(ROOT, "assets")).length >= 1);
+});
+
+test("スクリーンショットは日本語3枚・英語3枚で、assets/ の PNG はどれも README から参照される", () => {
+  const images = text => [...text.matchAll(/!\[[^\]]+\]\(([^)]+\.png)\)/g)].map(m => m[1]);
+  assert.deepEqual(images(readme), ["assets/screenshot.png", "assets/screenshot2.png", "assets/screenshot3.png"]);
+  assert.deepEqual(images(readmeEn), ["assets/en/screenshot.png", "assets/en/screenshot2.png", "assets/en/screenshot3.png"]);
+  const referenced = new Set([...images(readme), ...images(readmeEn)]);
+  const pngs = [
+    ...readdirSync(path.join(ROOT, "assets")).filter(f => f.endsWith(".png")).map(f => `assets/${f}`),
+    ...readdirSync(path.join(ROOT, "assets/en")).filter(f => f.endsWith(".png")).map(f => `assets/en/${f}`)
+  ];
+  for (const f of pngs) assert.ok(referenced.has(f), `${f} は README から参照されていない`);
+  for (const f of pngs) {
+    const buf = readFileSync(path.join(ROOT, f));
+    assert.ok(buf.length <= 300 * 1024, `${f}: ${buf.length}`);
+    assert.equal(buf.readUInt32BE(16), 1280, `${f} の幅`);
+    assert.equal(buf.readUInt32BE(20), 800, `${f} の高さ`);
+  }
+  for (const [, text] of BOTH) {
+    const captions = [...text.matchAll(/^>\*(.+)\*$/gm)].map(m => m[1]);
+    assert.equal(captions.length, 3);
+  }
+});
+
+test("ディレクトリー構造に載っているファイルとディレクトリーはすべて実在する（日英）", () => {
+  for (const [name, heading] of [["README.md", "## 📁 ディレクトリー構造"], ["README.en.md", "## 📁 Directory Structure"]]) {
+    for (const e of parseTree(name === "README.md" ? readme : readmeEn, heading)) {
+      assert.ok(readdirSync(path.join(ROOT, path.dirname(e.path))).includes(path.basename(e.path)), `${name}: ${e.path}`);
+    }
+  }
 });
