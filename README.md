@@ -8,8 +8,8 @@ title: "Intrusion Path Mapper"
 subtitle_ja: "侵入経路マッピングツール"
 subtitle_en: "Attack Path Visualization & Simulation Tool"
 
-description_ja: "建物やネットワークの簡易マップをノードとエッジで描き、攻撃者の侵入経路をブラウザー上で探索・可視化する教育用ツール。成功確率の高い順（YenのK最短経路）とコストの低い順で経路を並べ、成功確率とリスクを表示する。日英対応。"
-description_en: "Educational tool that maps buildings or networks as nodes and edges and finds intrusion paths in the browser. It ranks paths by success probability (Yen's K shortest paths on −ln vuln) or by cost, and shows the success probability and risk of each path. Japanese and English UI."
+description_ja: "建物やネットワークの簡易マップをノードとエッジで描き、攻撃者の侵入経路をブラウザー上で探索・可視化する教育用ツール。成功確率の高い順（YenのK最短経路）とコストの低い順で経路を並べ、目標ごとのリスク、すべての経路を断つ最小のノードの組（対策の効果）、vulnを動かす「もしも」の試算も示す。日英対応。"
+description_en: "Educational tool that maps buildings or networks as nodes and edges and finds intrusion paths in the browser. It ranks paths by success probability (Yen's K shortest paths on −ln vuln) or by cost, compares risk by target, finds the minimum set of nodes that cuts every path, and lets you try what-if changes to vuln. Japanese and English UI."
 
 category_ja:
   - 物理的セキュリティ
@@ -52,7 +52,7 @@ hub: true
 
 **Intrusion Path Mapper**は、建物やネットワークの簡易マップをノードとエッジで描き、攻撃者の「侵入経路」をブラウザー上で探索・可視化する教育用ツールです。
 
-ノードごとに「突破できる確率」（vuln）を決めると、成功確率の高い順に経路を並べ、各経路の成功確率とリスクを表示します。移動のしやすさ（weight）を重みにしたコストの低い順でも並べられ、2つの順位が食い違う理由を確かめられます。
+ノードごとに「突破できる確率」（vuln）を決めると、成功確率の高い順に経路を並べ、各経路の成功確率とリスクを表示します。移動のしやすさ（weight）を重みにしたコストの低い順でも並べられ、2つの順位が食い違う理由を確かめられます。目標ごとのリスクや、すべての経路を断つ最小のノードの組（対策の効果）も求め、vulnを動かしたときの変化をその場で試せます。
 
 物理セキュリティとサイバーセキュリティを1枚のマップにまとめて扱えます。データはブラウザーの中だけで処理し、外部に送信しません。
 
