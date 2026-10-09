@@ -33,6 +33,10 @@ const kPathsInput = document.getElementById("kPaths");
 const pathsListEl = document.getElementById("pathsList");
 const resultsSummaryEl = document.getElementById("resultsSummary");
 const commonNodesEl = document.getElementById("commonNodes");
+const impactEl = document.getElementById("impact");
+const impactCut = document.getElementById("impactCut");
+const impactListTitle = document.getElementById("impactListTitle");
+const impactList = document.getElementById("impactList");
 const targetRiskEl = document.getElementById("targetRisk");
 const targetRiskNote = document.getElementById("targetRiskNote");
 const targetRiskList = document.getElementById("targetRiskList");
@@ -88,6 +92,7 @@ let currentPaths = []; // 探索の結果（findPaths の戻り値）
 let currentMode = "prob"; // 結果を出したときの並べ方
 let resultsShown = false; // 探索を実行したか（到達できない結果も含む）
 let riskStartId = null; // 目標ごとのリスクを求めた開始ノード
+let impact = null; // 対策の効果 {cut, block}（blockImpact と minVertexCut の戻り値）
 let riskRows = []; // targetRisks の戻り値
 const RISK_ROWS_SHOWN = 10;
 let selectedPathIndex = 0; // 現在選択されている経路のインデックス
@@ -174,6 +179,7 @@ function setLocale(next) {
     stopAnimation();
     renderKPathsResult();
     renderTargetRisks();
+    renderImpact();
   } else {
     pathsListEl.replaceChildren(emptyState());
   }
@@ -612,8 +618,41 @@ analyzeBtn.addEventListener("click", ()=>{
   riskStartId = sId;
   riskRows = core.targetRisks(data, sId);
   renderTargetRisks();
+
+  // 対策の効果（1位の経路のノードを1つ塞ぐ、すべての経路を断つ最小の組）
+  impact = { cut: core.minVertexCut(data, sId, gId), block: core.blockImpact(data, sId, gId) };
+  renderImpact();
   revealResults();
 });
+
+/** 対策の効果の欄と、最小の組の印（赤い輪） */
+function renderImpact() {
+  impactList.replaceChildren();
+  const show = impact !== null && impact.block.before > 0;
+  impactEl.hidden = !show;
+  markCutNodes();
+  if (!show) return;
+  const { cut, block } = impact;
+  impactCut.textContent = cut.direct
+    ? t("impact.cutDirect")
+    : t("impact.cut", { size: cut.size, list: cut.nodes.map(i => labelOf(data.nodes[i])).join(t("list.sep")) });
+  impactListTitle.textContent = t("impact.listTitle");
+  for (const row of block.rows) {
+    const li = document.createElement("li");
+    const label = labelOf(nodeById(row.id));
+    const before = core.formatPercent(row.before);
+    li.textContent = row.after > 0
+      ? t("impact.row", { label, before, after: core.formatPercent(row.after), change: `−${(row.drop / row.before * 100).toFixed(1)}%` })
+      : t("impact.rowCut", { label, before });
+    impactList.append(li);
+  }
+}
+
+function markCutNodes() {
+  if (!nodeSel) return;
+  const ids = new Set(impact && !impact.cut.direct ? impact.cut.nodes.map(i => data.nodes[i].id) : []);
+  nodeSel.classed("node-cut", n => ids.has(n.id));
+}
 
 /** 目標ごとのリスクの一覧（上位10件）。行ごとに「成功確率×重要度＝リスク」を示す */
 function renderTargetRisks() {
@@ -754,6 +793,8 @@ function resetResults() {
   riskStartId = null;
   riskRows = [];
   renderTargetRisks();
+  impact = null;
+  renderImpact();
   clearHighlight();
   markCommonNodes();
 }

@@ -249,6 +249,12 @@ select, input[type=number] {
 .common-nodes { margin: 0 0 8px; font-size: 12px; color: #ffd580; line-height: 1.5; }
 .common-nodes:empty { display: none; }
 
+/* 対策の効果 */
+.impact { margin-top: 16px; }
+.impact h3 { margin: 6px 0; font-size: 14px; color: var(--muted); }
+.impact-cut { margin: 0 0 8px; font-size: 13px; color: var(--danger); font-weight: 600; line-height: 1.5; }
+.impact-list { margin: 0 0 8px; padding-left: 20px; font-size: 12px; line-height: 1.6; color: var(--text); }
+
 /* 目標ごとのリスク */
 .target-risk { margin-top: 16px; }
 .target-risk h3 { margin: 6px 0; font-size: 14px; color: var(--muted); }
@@ -806,6 +812,10 @@ svg#graph { display: block; width: 100%; height: calc(100dvh - 69px); min-height
   border-radius: 50%;
   border: 2px dashed #ffd580;
 }
+
+/* すべての経路を断つ最小の組（赤い輪。共通ノードの点線より優先） */
+.node.node-cut circle { stroke: var(--danger); stroke-width: 4px; stroke-dasharray: none; }
+.legend-ring.cut { border: 2px solid var(--danger); }
 
 /* 経路外のノード・エッジを暗くする */
 .node.animate-dim {
