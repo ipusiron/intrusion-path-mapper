@@ -494,6 +494,17 @@ select, input[type=number] {
 .node-info .title { color: var(--text); font-weight: 600; }
 .node-info-actions { display: flex; gap: 8px; margin-top: 10px; }
 
+/* ノードに出入りするエッジの一覧 */
+.edge-group { margin-top: 12px; }
+.edge-group-title { color: var(--text); font-weight: 600; margin-bottom: 4px; }
+.edge-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.edge-list li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.edge-text { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; }
+.edge-list .small-btn { flex: 0 0 auto; }
+
+/* エッジの当たり判定（透明で太い線） */
+.link-hit { stroke: transparent; stroke-width: 12px; cursor: pointer; }
+
 .node-edit-panel {
   display: none;
   gap: 8px;

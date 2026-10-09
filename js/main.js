@@ -17,6 +17,7 @@ let data = null;            // {meta, nodes:[{id,label,label_en?,type,vuln,impor
 let sim = null;
 let zoomLayer = null;
 let linkSel = null;
+let hitSel = null;
 let nodeSel = null;
 let locale = "ja";
 
@@ -73,6 +74,9 @@ const edgeDialogSource = document.getElementById("edgeDialogSource");
 const edgeDialogTarget = document.getElementById("edgeDialogTarget");
 const edgeDialogWeight = document.getElementById("edgeDialogWeight");
 const edgeDialogSave = document.getElementById("edgeDialogSave");
+const edgeDialogTitle = document.getElementById("edgeDialogTitle");
+const edgeDialogBoth = document.getElementById("edgeDialogBoth");
+const edgeDialogBothRow = document.getElementById("edgeDialogBothRow");
 const edgeDialogCancel = document.getElementById("edgeDialogCancel");
 
 let currentPaths = []; // 探索の結果（findPaths の戻り値）
@@ -81,6 +85,7 @@ let resultsShown = false; // 探索を実行したか（到達できない結果
 let selectedPathIndex = 0; // 現在選択されている経路のインデックス
 let selectedNode = null; // 現在選択されているノード
 let editMode = null; // 'add' or 'edit'
+let edgeEditKey = null; // 編集中のエッジ {source, target}（追加のときは null）
 let notificationTimer = null;
 let lastStatus = null; // 言語を切り替えたときに描き直すため、知らせの作り方を持っておく
 let lastNotification = null;
@@ -166,6 +171,8 @@ function setLocale(next) {
   if (lastStatus) showStatus(lastStatus.build, lastStatus.kind);
   if (lastNotification && !presetNotification.hidden) renderNotification();
   if (nodeDialog.open) nodeDialogTitle.textContent = t(editMode === "add" ? "dialog.addTitle" : "dialog.editTitle");
+  if (edgeDialog.open) setEdgeDialogMode();
+  if (hitSel) hitSel.select("title").text(e => edgeTitle(e));
 }
 
 /* ---------- 読み込み ---------- */
@@ -269,6 +276,19 @@ function drawGraph(graphData, { fit = true } = {}) {
     .attr("stroke","#8aa0b6")
     .attr("marker-end","url(#arrow)");
 
+  // 細い線はクリックしにくいので、透明で太い線を重ねてエッジの編集を開く（キーボードではノード情報の一覧から）
+  hitSel = zoomLayer.append("g").attr("class","link-hits")
+    .selectAll("line")
+    .data(links)
+    .enter()
+    .append("line")
+    .attr("class","link-hit")
+    .on("click", (event, e) => {
+      event.stopPropagation();
+      openEdgeEdit(core.endpointId(e.source), core.endpointId(e.target));
+    });
+  hitSel.append("title").text(e => edgeTitle(e));
+
   const nodeG = zoomLayer.append("g").attr("class","nodes")
     .selectAll("g")
     .data(graphData.nodes, d => d.id)
@@ -336,8 +356,23 @@ function drawGraph(graphData, { fit = true } = {}) {
         .attr("y2", d.target.y - dy / len * r);
     });
 
+    hitSel
+      .attr("x1", d => d.source.x)
+      .attr("y1", d => d.source.y)
+      .attr("x2", d => d.target.x)
+      .attr("y2", d => d.target.y);
+
     nodeSel.attr("transform", d=>`translate(${d.x},${d.y})`);
   }
+}
+
+function nodeById(id) {
+  return data.nodes.find(n => n.id === id);
+}
+
+function edgeTitle(e) {
+  const from = nodeById(core.endpointId(e.source)), to = nodeById(core.endpointId(e.target));
+  return t("edge.title", { from: from ? labelOf(from) : "", to: to ? labelOf(to) : "", w: e.weight });
 }
 
 // 画面の大きさが変わったら中心を合わせ直す（リスナーは1つだけ）
@@ -433,6 +468,48 @@ function renderNodeInfo(n) {
   toGoal.addEventListener("click", () => { goalSelect.value = n.id; });
   actions.append(toStart, toGoal);
   nodeInfoEl.append(actions);
+
+  // 出ていくエッジ・入ってくるエッジ（キーボードでもエッジを編集・削除できるように）
+  const { outgoing, incoming } = core.edgesOf(data, n.id);
+  nodeInfoEl.append(
+    edgeList(t("info.outgoing", { n: outgoing.length }), outgoing, e => `→ ${labelOf(nodeById(e.target))} (${e.target})`),
+    edgeList(t("info.incoming", { n: incoming.length }), incoming, e => `← ${labelOf(nodeById(e.source))} (${e.source})`)
+  );
+}
+
+function edgeList(heading, edges, describe) {
+  const box = document.createElement("div");
+  box.className = "edge-group";
+  const h = document.createElement("div");
+  h.className = "edge-group-title";
+  h.textContent = heading;
+  box.append(h);
+  if (!edges.length) return box;
+  const ul = document.createElement("ul");
+  ul.className = "edge-list";
+  for (const e of edges) {
+    const li = document.createElement("li");
+    const text = document.createElement("span");
+    text.className = "edge-text";
+    text.textContent = `${describe(e)} weight ${e.weight}`;
+    const names = { from: labelOf(nodeById(e.source)), to: labelOf(nodeById(e.target)) };
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "small-btn";
+    edit.textContent = t("info.editEdge");
+    edit.setAttribute("aria-label", t("edge.editAria", names));
+    edit.addEventListener("click", () => openEdgeEdit(e.source, e.target));
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "small-btn danger";
+    del.textContent = t("info.deleteEdge");
+    del.setAttribute("aria-label", t("edge.deleteAria", names));
+    del.addEventListener("click", () => deleteEdge(e.source, e.target));
+    li.append(text, edit, del);
+    ul.append(li);
+  }
+  box.append(ul);
+  return box;
 }
 
 function popupRow(label, value) {
@@ -830,6 +907,7 @@ function afterEdit() {
   buildUIOptions(data.nodes, { keepSelection: true });
   drawGraph(data, { fit: false });
   resetResults();
+  renderNodeInfo(selectedNode);
 }
 
 function setTypeOptions(type) {
@@ -976,40 +1054,71 @@ nodeDialogType.addEventListener('change', () => {
   if (nodeDialogColorAuto.checked) nodeDialogColor.value = core.typeColor(nodeDialogType.value);
 });
 
+/** エッジのダイアログの見出しとボタンを、追加・編集の別に合わせる */
+function setEdgeDialogMode() {
+  const editing = edgeEditKey !== null;
+  edgeDialogTitle.textContent = t(editing ? "dialog.edgeEditTitle" : "dialog.edgeTitle");
+  edgeDialogSave.textContent = t(editing ? "dialog.save" : "dialog.add");
+  edgeDialogSource.disabled = editing;
+  edgeDialogTarget.disabled = editing;
+  edgeDialogBothRow.hidden = editing;
+}
+
 // エッジ追加ボタン
 addEdgeBtn.addEventListener('click', () => {
   if (!data || data.nodes.length < 2) {
     showStatus(() => t("err.needTwoNodes"), "error");
     return;
   }
+  edgeEditKey = null;
   edgeDialogSource.value = startSelect.value || data.nodes[0].id;
   edgeDialogTarget.value = data.nodes.find(n => n.id !== edgeDialogSource.value).id;
   edgeDialogWeight.value = 1.0;
+  edgeDialogBoth.checked = false;
+  setEdgeDialogMode();
   openDialog(edgeDialog, edgeDialogError);
 });
 
-// エッジダイアログ保存
+/** 既存のエッジを編集する（weight だけを変える。向きや端点を変えるときは削除して追加する） */
+function openEdgeEdit(source, target) {
+  const e = data.edges.find(x => x.source === source && x.target === target);
+  if (!e) return;
+  edgeEditKey = { source, target };
+  edgeDialogSource.value = source;
+  edgeDialogTarget.value = target;
+  edgeDialogWeight.value = e.weight;
+  setEdgeDialogMode();
+  openDialog(edgeDialog, edgeDialogError);
+}
+
+function deleteEdge(source, target) {
+  const names = { from: labelOf(nodeById(source)), to: labelOf(nodeById(target)) };
+  if (!confirm(t("confirm.deleteEdge", names))) return;
+  data.edges = core.removeEdge(data, source, target);
+  afterEdit();
+  if (selectedNode) nodeInfoEl.focus(); // 押したボタンが消えるので、フォーカスをノード情報へ戻す
+}
+
+// エッジダイアログ保存（計算部の addEdge・updateEdgeWeight と同じ規則で検証する）
 edgeDialogSave.addEventListener('click', () => {
-  const source = edgeDialogSource.value;
-  const target = edgeDialogTarget.value;
-  const raw = edgeDialogWeight.value.trim();
-  const weight = raw === "" ? NaN : Number(raw);
-
-  if (source === target) {
-    dialogError(edgeDialogError, t("err.sameNode"));
-    return;
+  if (edgeEditKey) {
+    const r = core.updateEdgeWeight(data, edgeEditKey.source, edgeEditKey.target, edgeDialogWeight.value);
+    if (r.error) {
+      dialogError(edgeDialogError, t(r.error === "weight" ? "err.weight" : "err.noEdge"));
+      return;
+    }
+    data.edges = r.edges;
+  } else {
+    const r = core.addEdge(data, edgeDialogSource.value, edgeDialogTarget.value, edgeDialogWeight.value,
+      { bidirectional: edgeDialogBoth.checked });
+    if (r.error) {
+      const key = r.error === "tooManyEdges" ? "graph.tooManyEdges" : `err.${r.error}`;
+      dialogError(edgeDialogError, t(key, { max: core.LIMITS.maxEdges }));
+      return;
+    }
+    data.edges = r.edges;
+    if (r.reverseSkipped) showStatus(() => t("status.reverseSkipped"));
   }
-  if (data.edges.some(e => e.source === source && e.target === target)) {
-    dialogError(edgeDialogError, t("err.edgeExists"));
-    return;
-  }
-  if (!Number.isFinite(weight) || weight < 0) {
-    dialogError(edgeDialogError, t("err.weight"));
-    return;
-  }
-
-  // エッジ追加
-  data.edges.push({source, target, weight});
 
   edgeDialog.close();
   afterEdit();

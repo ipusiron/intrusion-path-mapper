@@ -72,7 +72,7 @@ test("主要な要素の id がある", () => {
     "presetNotificationDetail", "presetNotificationClose", "nodeDialog", "nodeDialogTitle", "nodeDialogError", "nodeDialogId",
     "nodeDialogLabel", "nodeDialogType", "nodeDialogVuln", "nodeDialogImportance", "nodeDialogColor", "nodeDialogColorAuto",
     "nodeDialogColorReset", "nodeDialogSave", "nodeDialogCancel", "edgeDialog", "edgeDialogError", "edgeDialogSource",
-    "edgeDialogTarget", "edgeDialogWeight", "edgeDialogSave", "edgeDialogCancel"
+    "edgeDialogTarget", "edgeDialogWeight", "edgeDialogBoth", "edgeDialogBothRow", "edgeDialogTitle", "edgeDialogSave", "edgeDialogCancel"
   ];
   for (const id of ids) {
     assert.equal(html.split(`id="${id}"`).length - 1, 1, id);
