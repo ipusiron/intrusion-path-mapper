@@ -53,6 +53,8 @@ test("塗りのボタンの文字と、半透明の補足の文字", () => {
   assert.ok(ratio("#0a0d11", v.accent) >= 4.5, "主要ボタン（左端）");
   assert.ok(ratio("#0a0d11", "#4db8ff") >= 4.5, "主要ボタン（右端）");
   assert.ok(ratio("#0f1115", v.accent) >= 4.5, "ダイアログの保存");
+  for (const bg of SIDEBAR) assert.ok(ratio("#ffd580", bg) >= 4.5, `共通ノードの文字 on ${bg}`);
+  assert.match(css, /\.common-nodes \{[^}]*color: #ffd580;/);
   for (const bg of SIDEBAR) {
     const hint = blend(v.muted, bg, 0.7); // .empty-hint は opacity 0.7
     assert.ok(ratio(hint, bg) >= 4.5, `empty-hint on ${bg}: ${ratio(hint, bg).toFixed(2)}`);

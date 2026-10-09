@@ -68,8 +68,10 @@ const HEADINGS = [
   ["## 🔬 技術的な説明", "## 🔬 Technical notes"],
   ["### vulnと成功確率", "### vuln and success probability"],
   ["### リスク", "### Risk"],
+  ["### 目標ごとのリスク", "### Risk by target"],
   ["### 2つの並べ方", "### Two orders"],
   ["### K本の経路（Yenのアルゴリズム）", "### K paths (Yen's algorithm)"],
+  ["### 表示中の経路がすべて通るノード", "### Nodes on all paths shown"],
   ["### プリセットシナリオ", "### Preset scenarios"],
   ["### JSONフォーマット", "### JSON format"],
   ["### ノードの種類と値の例", "### Node types and example values"],
@@ -229,10 +231,11 @@ test("README から参照するファイル（相対リンク・画像）が実�
   }
 });
 
-test("スクリーンショットは日本語3枚・英語3枚で、assets/ の PNG はどれも README から参照される", () => {
+test("スクリーンショットは日本語4枚・英語4枚で、assets/ の PNG はどれも README から参照される", () => {
   const images = text => [...text.matchAll(/!\[[^\]]+\]\(([^)]+\.png)\)/g)].map(m => m[1]);
-  assert.deepEqual(images(readme), ["assets/screenshot.png", "assets/screenshot2.png", "assets/screenshot3.png"]);
-  assert.deepEqual(images(readmeEn), ["assets/en/screenshot.png", "assets/en/screenshot2.png", "assets/en/screenshot3.png"]);
+  const four = dir => [1, 2, 3, 4].map(n => `${dir}screenshot${n === 1 ? "" : n}.png`);
+  assert.deepEqual(images(readme), four("assets/"));
+  assert.deepEqual(images(readmeEn), four("assets/en/"));
   const referenced = new Set([...images(readme), ...images(readmeEn)]);
   const pngs = [
     ...readdirSync(path.join(ROOT, "assets")).filter(f => f.endsWith(".png")).map(f => `assets/${f}`),
@@ -247,7 +250,7 @@ test("スクリーンショットは日本語3枚・英語3枚で、assets/ の 
   }
   for (const [, text] of BOTH) {
     const captions = [...text.matchAll(/^>\*(.+)\*$/gm)].map(m => m[1]);
-    assert.equal(captions.length, 3);
+    assert.equal(captions.length, 4);
   }
 });
 
@@ -257,4 +260,51 @@ test("ディレクトリー構造に載っているファイルとディレク�
       assert.ok(readdirSync(path.join(ROOT, path.dirname(e.path))).includes(path.basename(e.path)), `${name}: ${e.path}`);
     }
   }
+});
+
+test("表示中の経路がすべて通るノードの例（物理的侵入経路）は計算部の出力と一致する（日英）", () => {
+  const g = sample("sample-physical-intrusion");
+  const common = (k, key) => core.commonNodes(core.findPaths(g, "outside", "server_room", { mode: "prob", k }))
+    .map(i => g.nodes[i][key]);
+  assert.deepEqual(common(3, "id"), ["corridor_2f", "ic_card_door", "server_room_door"]);
+  assert.deepEqual(common(5, "id"), ["ic_card_door", "server_room_door"]);
+  assert.deepEqual(common(10, "id"), common(5, "id"));
+  assert.ok(readme.includes(`K=3で${common(3, "label").join("・")}、K=5とK=10で${common(5, "label").join("・")}です`));
+  assert.ok(readme.includes(`K=10でも${common(10, "label").join("と")}が残り`));
+  const [a3, b3, c3] = common(3, "label_en");
+  const [a5, b5] = common(5, "label_en");
+  assert.ok(readmeEn.includes(`they are ${a3}, ${b3} and ${c3} for K=3, and ${a5} and ${b5} for K=5 and K=10`));
+  assert.ok(readmeEn.includes("the IC card door and the server room door remain even at K=10"));
+});
+
+test("目標ごとのリスクの例（物理的侵入経路、屋外から）は計算部の出力と一致する（日英）", () => {
+  const g = sample("sample-physical-intrusion");
+  const rows = core.targetRisks(g, "outside");
+  const row = id => rows.find(r => r.id === id);
+  const rank = id => rows.findIndex(r => r.id === id) + 1;
+  const e = row("employee"), sr = row("server_room");
+  assert.equal(rank("employee"), 1);
+  const fmt = (r, sep) => `${core.formatPercent(r.successProb)}${sep[0]}${r.importance}${sep[1]}${core.formatScore(r.risk)}`;
+  assert.equal(fmt(e, ["×", "＝"]), "39.9%×0.6＝0.239");
+  assert.equal(fmt(sr, ["×", "＝"]), "2.66%×0.95＝0.0253");
+  for (const text of [readme]) {
+    assert.ok(text.includes(`一般社員（${fmt(e, ["×", "＝"])}）`));
+    assert.ok(text.includes(`サーバールーム（${fmt(sr, ["×", "＝"])}）は${rank("server_room")}位`));
+  }
+  assert.ok(readmeEn.includes(`(${fmt(e, [" × ", " = "])})`));
+  assert.ok(readmeEn.includes(`(${fmt(sr, [" × ", " = "])}) ranks ${rank("server_room")}th`));
+});
+
+test("自己情報量の例（物理的侵入経路の1位）は計算部の出力と一致する（日英）", () => {
+  const g = sample("sample-physical-intrusion");
+  const [top] = core.findPaths(g, "outside", "server_room", { mode: "prob", k: 1 });
+  const nats = (-Math.log(top.successProb)).toFixed(2);
+  const bits = (-Math.log2(top.successProb)).toFixed(2);
+  const last = g.nodes[top.path[top.path.length - 1]];
+  const lastNats = (-Math.log(last.vuln)).toFixed(2);
+  assert.deepEqual([nats, bits, lastNats, last.vuln], ["3.63", "5.23", "1.61", 0.2]);
+  assert.ok(readme.includes(`合計${nats}ナット（${bits}ビット）`));
+  assert.ok(readme.includes(`（サーバールーム、vuln ${last.vuln}）が${lastNats}ナット`));
+  assert.ok(readmeEn.includes(`totals ${nats} nats (${bits} bits)`));
+  assert.ok(readmeEn.includes(`(the server room, vuln ${last.vuln}) accounts for ${lastNats} nats`));
 });

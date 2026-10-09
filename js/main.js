@@ -17,6 +17,7 @@ let data = null;            // {meta, nodes:[{id,label,label_en?,type,vuln,impor
 let sim = null;
 let zoomLayer = null;
 let linkSel = null;
+let hitSel = null;
 let nodeSel = null;
 let locale = "ja";
 
@@ -31,6 +32,11 @@ const nodePenaltyInput = document.getElementById("nodePenalty");
 const kPathsInput = document.getElementById("kPaths");
 const pathsListEl = document.getElementById("pathsList");
 const resultsSummaryEl = document.getElementById("resultsSummary");
+const commonNodesEl = document.getElementById("commonNodes");
+const targetRiskEl = document.getElementById("targetRisk");
+const targetRiskNote = document.getElementById("targetRiskNote");
+const targetRiskList = document.getElementById("targetRiskList");
+const dimOthersInput = document.getElementById("dimOthers");
 const nodeInfoEl  = document.getElementById("nodeInfo");
 const exportBtn   = document.getElementById("exportBtn");
 const fileInput   = document.getElementById("fileInput");
@@ -73,14 +79,21 @@ const edgeDialogSource = document.getElementById("edgeDialogSource");
 const edgeDialogTarget = document.getElementById("edgeDialogTarget");
 const edgeDialogWeight = document.getElementById("edgeDialogWeight");
 const edgeDialogSave = document.getElementById("edgeDialogSave");
+const edgeDialogTitle = document.getElementById("edgeDialogTitle");
+const edgeDialogBoth = document.getElementById("edgeDialogBoth");
+const edgeDialogBothRow = document.getElementById("edgeDialogBothRow");
 const edgeDialogCancel = document.getElementById("edgeDialogCancel");
 
 let currentPaths = []; // 探索の結果（findPaths の戻り値）
 let currentMode = "prob"; // 結果を出したときの並べ方
 let resultsShown = false; // 探索を実行したか（到達できない結果も含む）
+let riskStartId = null; // 目標ごとのリスクを求めた開始ノード
+let riskRows = []; // targetRisks の戻り値
+const RISK_ROWS_SHOWN = 10;
 let selectedPathIndex = 0; // 現在選択されている経路のインデックス
 let selectedNode = null; // 現在選択されているノード
 let editMode = null; // 'add' or 'edit'
+let edgeEditKey = null; // 編集中のエッジ {source, target}（追加のときは null）
 let notificationTimer = null;
 let lastStatus = null; // 言語を切り替えたときに描き直すため、知らせの作り方を持っておく
 let lastNotification = null;
@@ -160,12 +173,15 @@ function setLocale(next) {
   if (resultsShown) {
     stopAnimation();
     renderKPathsResult();
+    renderTargetRisks();
   } else {
     pathsListEl.replaceChildren(emptyState());
   }
   if (lastStatus) showStatus(lastStatus.build, lastStatus.kind);
   if (lastNotification && !presetNotification.hidden) renderNotification();
   if (nodeDialog.open) nodeDialogTitle.textContent = t(editMode === "add" ? "dialog.addTitle" : "dialog.editTitle");
+  if (edgeDialog.open) setEdgeDialogMode();
+  if (hitSel) hitSel.select("title").text(e => edgeTitle(e));
 }
 
 /* ---------- 読み込み ---------- */
@@ -269,6 +285,19 @@ function drawGraph(graphData, { fit = true } = {}) {
     .attr("stroke","#8aa0b6")
     .attr("marker-end","url(#arrow)");
 
+  // 細い線はクリックしにくいので、透明で太い線を重ねてエッジの編集を開く（キーボードではノード情報の一覧から）
+  hitSel = zoomLayer.append("g").attr("class","link-hits")
+    .selectAll("line")
+    .data(links)
+    .enter()
+    .append("line")
+    .attr("class","link-hit")
+    .on("click", (event, e) => {
+      event.stopPropagation();
+      openEdgeEdit(core.endpointId(e.source), core.endpointId(e.target));
+    });
+  hitSel.append("title").text(e => edgeTitle(e));
+
   const nodeG = zoomLayer.append("g").attr("class","nodes")
     .selectAll("g")
     .data(graphData.nodes, d => d.id)
@@ -336,8 +365,23 @@ function drawGraph(graphData, { fit = true } = {}) {
         .attr("y2", d.target.y - dy / len * r);
     });
 
+    hitSel
+      .attr("x1", d => d.source.x)
+      .attr("y1", d => d.source.y)
+      .attr("x2", d => d.target.x)
+      .attr("y2", d => d.target.y);
+
     nodeSel.attr("transform", d=>`translate(${d.x},${d.y})`);
   }
+}
+
+function nodeById(id) {
+  return data.nodes.find(n => n.id === id);
+}
+
+function edgeTitle(e) {
+  const from = nodeById(core.endpointId(e.source)), to = nodeById(core.endpointId(e.target));
+  return t("edge.title", { from: from ? labelOf(from) : "", to: to ? labelOf(to) : "", w: e.weight });
 }
 
 // 画面の大きさが変わったら中心を合わせ直す（リスナーは1つだけ）
@@ -433,6 +477,48 @@ function renderNodeInfo(n) {
   toGoal.addEventListener("click", () => { goalSelect.value = n.id; });
   actions.append(toStart, toGoal);
   nodeInfoEl.append(actions);
+
+  // 出ていくエッジ・入ってくるエッジ（キーボードでもエッジを編集・削除できるように）
+  const { outgoing, incoming } = core.edgesOf(data, n.id);
+  nodeInfoEl.append(
+    edgeList(t("info.outgoing", { n: outgoing.length }), outgoing, e => `→ ${labelOf(nodeById(e.target))} (${e.target})`),
+    edgeList(t("info.incoming", { n: incoming.length }), incoming, e => `← ${labelOf(nodeById(e.source))} (${e.source})`)
+  );
+}
+
+function edgeList(heading, edges, describe) {
+  const box = document.createElement("div");
+  box.className = "edge-group";
+  const h = document.createElement("div");
+  h.className = "edge-group-title";
+  h.textContent = heading;
+  box.append(h);
+  if (!edges.length) return box;
+  const ul = document.createElement("ul");
+  ul.className = "edge-list";
+  for (const e of edges) {
+    const li = document.createElement("li");
+    const text = document.createElement("span");
+    text.className = "edge-text";
+    text.textContent = `${describe(e)} weight ${e.weight}`;
+    const names = { from: labelOf(nodeById(e.source)), to: labelOf(nodeById(e.target)) };
+    const edit = document.createElement("button");
+    edit.type = "button";
+    edit.className = "small-btn";
+    edit.textContent = t("info.editEdge");
+    edit.setAttribute("aria-label", t("edge.editAria", names));
+    edit.addEventListener("click", () => openEdgeEdit(e.source, e.target));
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "small-btn danger";
+    del.textContent = t("info.deleteEdge");
+    del.setAttribute("aria-label", t("edge.deleteAria", names));
+    del.addEventListener("click", () => deleteEdge(e.source, e.target));
+    li.append(text, edit, del);
+    ul.append(li);
+  }
+  box.append(ul);
+  return box;
 }
 
 function popupRow(label, value) {
@@ -521,8 +607,58 @@ analyzeBtn.addEventListener("click", ()=>{
   selectedPathIndex = 0;
   stopAnimation();
   renderKPathsResult();
+
+  // 同じ開始ノードから、各ノードを目標にしたときのリスク（並べ方によらず成功確率で求める）
+  riskStartId = sId;
+  riskRows = core.targetRisks(data, sId);
+  renderTargetRisks();
   revealResults();
 });
+
+/** 目標ごとのリスクの一覧（上位10件）。行ごとに「成功確率×重要度＝リスク」を示す */
+function renderTargetRisks() {
+  targetRiskEl.hidden = riskStartId === null;
+  targetRiskList.replaceChildren();
+  if (riskStartId === null) return;
+  const start = nodeById(riskStartId);
+  if (!riskRows.length) {
+    targetRiskNote.textContent = t("risk.none");
+    return;
+  }
+  const shown = riskRows.slice(0, RISK_ROWS_SHOWN);
+  targetRiskNote.textContent = t("risk.note", { start: labelOf(start), count: riskRows.length, shown: shown.length });
+  // いまの目標が上位に入らないときは、本当の順位をつけて末尾に足す（目標が一覧から消えないように）
+  const goalRank = riskRows.findIndex(r => r.id === goalSelect.value);
+  const items = shown.map((row, i) => [row, i]);
+  if (goalRank >= shown.length) items.push([riskRows[goalRank], goalRank]);
+  items.forEach(([row, i]) => {
+    const node = nodeById(row.id);
+    const li = document.createElement("li");
+    li.className = "target-risk-item" + (row.id === goalSelect.value ? " is-current" : "") + (i >= shown.length ? " is-extra" : "");
+    const head = document.createElement("div");
+    head.className = "target-risk-head";
+    const name = document.createElement("span");
+    name.className = "target-risk-name";
+    name.textContent = `#${i + 1} ${labelOf(node)}` + (row.id === goalSelect.value ? t("risk.current") : "");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "small-btn";
+    btn.textContent = t("risk.search");
+    btn.setAttribute("aria-label", t("risk.searchAria", { label: labelOf(node) }));
+    btn.addEventListener("click", () => {
+      goalSelect.value = row.id;
+      analyzeBtn.click();
+    });
+    head.append(name, btn);
+    const formula = document.createElement("div");
+    formula.className = "target-risk-formula";
+    formula.textContent = t("risk.formula", {
+      p: core.formatPercent(row.successProb), imp: String(row.importance), r: core.formatScore(row.risk), hops: row.hops
+    });
+    li.append(head, formula);
+    targetRiskList.append(li);
+  });
+}
 
 /** 広い画面（サイドバーだけがスクロールする）では、結果が隠れていればサイドバーを送る */
 function revealResults() {
@@ -536,6 +672,14 @@ function revealResults() {
 }
 
 rankModeSelect.addEventListener("change", updateModeFields);
+
+// 経路以外を薄くする（切り替えたら、選んでいる経路で描き直す）
+dimOthersInput.addEventListener("change", () => {
+  if (!currentPaths.length) return;
+  stopAnimation();
+  highlightPath(currentPaths[selectedPathIndex].path);
+  markCommonNodes();
+});
 
 exportBtn.addEventListener("click", ()=>{
   if (!data) return;
@@ -606,7 +750,12 @@ function resetResults() {
   selectedPathIndex = 0;
   pathsListEl.replaceChildren(emptyState());
   resultsSummaryEl.textContent = "";
+  commonNodesEl.textContent = "";
+  riskStartId = null;
+  riskRows = [];
+  renderTargetRisks();
   clearHighlight();
+  markCommonNodes();
 }
 
 function metric(label, value, cls) {
@@ -632,6 +781,8 @@ function renderKPathsResult(){
     none.textContent = currentMode === "prob" ? t("results.noneProb") : t("results.none");
     pathsListEl.replaceChildren(none);
     resultsSummaryEl.textContent = none.textContent;
+    commonNodesEl.textContent = "";
+    markCommonNodes();
     return;
   }
 
@@ -692,6 +843,17 @@ function renderKPathsResult(){
 
   resultsSummaryEl.textContent = t("results.summary", { count: currentPaths.length, mode: t(`mode.${currentMode}`) });
 
+  // 表示中の経路がすべて通るノード（対策を置く候補）
+  if (currentPaths.length >= 2) {
+    const common = core.commonNodes(currentPaths).map(i => labelOf(data.nodes[i]));
+    commonNodesEl.textContent = common.length
+      ? t("results.common", { count: currentPaths.length, list: common.join(t("list.sep")) })
+      : t("results.commonNone", { count: currentPaths.length });
+  } else {
+    commonNodesEl.textContent = "";
+  }
+  markCommonNodes();
+
   // 選択された経路をハイライト
   if (selectedPathIndex < currentPaths.length){
     highlightPath(currentPaths[selectedPathIndex].path);
@@ -714,9 +876,17 @@ function linkKey(e) {
 function clearHighlight() {
   if (!linkSel || !nodeSel) return;
   linkSel.classed("highlight", false).classed("pulse", false).classed("animate-edge", false)
-    .classed("animate-current-edge", false).classed("animate-future-edge", false).classed("animate-dim", false);
+    .classed("animate-current-edge", false).classed("animate-future-edge", false).classed("animate-dim", false)
+    .classed("path-dim", false);
   nodeSel.classed("node-highlight", false).classed("animate-node", false).classed("animate-current", false)
-    .classed("animate-future", false).classed("animate-dim", false);
+    .classed("animate-future", false).classed("animate-dim", false).classed("path-dim", false);
+}
+
+/** 表示中の経路がすべて通るノードに印を付ける（経路が2本未満なら外す） */
+function markCommonNodes() {
+  if (!nodeSel) return;
+  const ids = new Set(currentPaths.length >= 2 ? core.commonNodes(currentPaths).map(i => data.nodes[i].id) : []);
+  nodeSel.classed("node-common", n => ids.has(n.id));
 }
 
 function highlightPath(path){
@@ -735,6 +905,12 @@ function highlightPath(path){
   nodeSel.each(function(n){
     d3.select(this).classed("node-highlight", nodeSet.has(n.id));
   });
+
+  // 経路以外を薄くする（大きなマップで経路が埋もれないように。切り替えられる）
+  if (dimOthersInput.checked) {
+    linkSel.classed("path-dim", e => !keys.has(linkKey(e)));
+    nodeSel.classed("path-dim", n => !nodeSet.has(n.id));
+  }
 }
 
 // アニメーション再生
@@ -830,6 +1006,7 @@ function afterEdit() {
   buildUIOptions(data.nodes, { keepSelection: true });
   drawGraph(data, { fit: false });
   resetResults();
+  renderNodeInfo(selectedNode);
 }
 
 function setTypeOptions(type) {
@@ -976,40 +1153,71 @@ nodeDialogType.addEventListener('change', () => {
   if (nodeDialogColorAuto.checked) nodeDialogColor.value = core.typeColor(nodeDialogType.value);
 });
 
+/** エッジのダイアログの見出しとボタンを、追加・編集の別に合わせる */
+function setEdgeDialogMode() {
+  const editing = edgeEditKey !== null;
+  edgeDialogTitle.textContent = t(editing ? "dialog.edgeEditTitle" : "dialog.edgeTitle");
+  edgeDialogSave.textContent = t(editing ? "dialog.save" : "dialog.add");
+  edgeDialogSource.disabled = editing;
+  edgeDialogTarget.disabled = editing;
+  edgeDialogBothRow.hidden = editing;
+}
+
 // エッジ追加ボタン
 addEdgeBtn.addEventListener('click', () => {
   if (!data || data.nodes.length < 2) {
     showStatus(() => t("err.needTwoNodes"), "error");
     return;
   }
+  edgeEditKey = null;
   edgeDialogSource.value = startSelect.value || data.nodes[0].id;
   edgeDialogTarget.value = data.nodes.find(n => n.id !== edgeDialogSource.value).id;
   edgeDialogWeight.value = 1.0;
+  edgeDialogBoth.checked = false;
+  setEdgeDialogMode();
   openDialog(edgeDialog, edgeDialogError);
 });
 
-// エッジダイアログ保存
+/** 既存のエッジを編集する（weight だけを変える。向きや端点を変えるときは削除して追加する） */
+function openEdgeEdit(source, target) {
+  const e = data.edges.find(x => x.source === source && x.target === target);
+  if (!e) return;
+  edgeEditKey = { source, target };
+  edgeDialogSource.value = source;
+  edgeDialogTarget.value = target;
+  edgeDialogWeight.value = e.weight;
+  setEdgeDialogMode();
+  openDialog(edgeDialog, edgeDialogError);
+}
+
+function deleteEdge(source, target) {
+  const names = { from: labelOf(nodeById(source)), to: labelOf(nodeById(target)) };
+  if (!confirm(t("confirm.deleteEdge", names))) return;
+  data.edges = core.removeEdge(data, source, target);
+  afterEdit();
+  if (selectedNode) nodeInfoEl.focus(); // 押したボタンが消えるので、フォーカスをノード情報へ戻す
+}
+
+// エッジダイアログ保存（計算部の addEdge・updateEdgeWeight と同じ規則で検証する）
 edgeDialogSave.addEventListener('click', () => {
-  const source = edgeDialogSource.value;
-  const target = edgeDialogTarget.value;
-  const raw = edgeDialogWeight.value.trim();
-  const weight = raw === "" ? NaN : Number(raw);
-
-  if (source === target) {
-    dialogError(edgeDialogError, t("err.sameNode"));
-    return;
+  if (edgeEditKey) {
+    const r = core.updateEdgeWeight(data, edgeEditKey.source, edgeEditKey.target, edgeDialogWeight.value);
+    if (r.error) {
+      dialogError(edgeDialogError, t(r.error === "weight" ? "err.weight" : "err.noEdge"));
+      return;
+    }
+    data.edges = r.edges;
+  } else {
+    const r = core.addEdge(data, edgeDialogSource.value, edgeDialogTarget.value, edgeDialogWeight.value,
+      { bidirectional: edgeDialogBoth.checked });
+    if (r.error) {
+      const key = r.error === "tooManyEdges" ? "graph.tooManyEdges" : `err.${r.error}`;
+      dialogError(edgeDialogError, t(key, { max: core.LIMITS.maxEdges }));
+      return;
+    }
+    data.edges = r.edges;
+    if (r.reverseSkipped) showStatus(() => t("status.reverseSkipped"));
   }
-  if (data.edges.some(e => e.source === source && e.target === target)) {
-    dialogError(edgeDialogError, t("err.edgeExists"));
-    return;
-  }
-  if (!Number.isFinite(weight) || weight < 0) {
-    dialogError(edgeDialogError, t("err.weight"));
-    return;
-  }
-
-  // エッジ追加
-  data.edges.push({source, target, weight});
 
   edgeDialog.close();
   afterEdit();

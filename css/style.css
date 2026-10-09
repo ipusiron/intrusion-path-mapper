@@ -245,6 +245,21 @@ select, input[type=number] {
 .results h3 { margin: 6px 0; font-size: 14px; color: var(--muted); }
 .results-summary { margin: 0 0 8px; font-size: 12px; color: var(--muted); }
 .results-summary:empty { display: none; }
+.results-option { margin: 0 0 8px; }
+.common-nodes { margin: 0 0 8px; font-size: 12px; color: #ffd580; line-height: 1.5; }
+.common-nodes:empty { display: none; }
+
+/* 目標ごとのリスク */
+.target-risk { margin-top: 16px; }
+.target-risk h3 { margin: 6px 0; font-size: 14px; color: var(--muted); }
+.target-risk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.target-risk-item { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: rgba(15, 20, 34, 0.6); }
+.target-risk-item.is-current { border-color: var(--accent2); }
+.target-risk-item.is-extra { margin-top: 6px; border-style: dashed; }
+.target-risk-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.target-risk-name { font-size: 13px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.target-risk-head .small-btn { flex: 0 0 auto; }
+.target-risk-formula { margin-top: 4px; font-size: 12px; color: var(--muted); }
 
 /* 知らせ（読み込みの結果・入力の誤り） */
 .status-msg {
@@ -493,6 +508,17 @@ select, input[type=number] {
 .node-info .kv > div { min-width: 0; overflow-wrap: anywhere; }
 .node-info .title { color: var(--text); font-weight: 600; }
 .node-info-actions { display: flex; gap: 8px; margin-top: 10px; }
+
+/* ノードに出入りするエッジの一覧 */
+.edge-group { margin-top: 12px; }
+.edge-group-title { color: var(--text); font-weight: 600; margin-bottom: 4px; }
+.edge-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.edge-list li { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.edge-text { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; }
+.edge-list .small-btn { flex: 0 0 auto; }
+
+/* エッジの当たり判定（透明で太い線） */
+.link-hit { stroke: transparent; stroke-width: 12px; cursor: pointer; }
 
 .node-edit-panel {
   display: none;
@@ -765,6 +791,20 @@ svg#graph { display: block; width: 100%; height: calc(100dvh - 69px); min-height
   stroke-width: 2.5px;
   opacity: 0.7;
   filter: drop-shadow(0 0 4px rgba(255, 213, 128, 0.5));
+}
+
+/* 選んだ経路以外を薄くする（「経路以外を薄くする」がオンのとき） */
+.node.path-dim { opacity: 0.25; }
+.link.path-dim { opacity: 0.12; }
+
+/* 表示中の経路がすべて通るノード（点線の輪） */
+.node.node-common circle { stroke: #ffd580; stroke-width: 4px; stroke-dasharray: 5 3; }
+
+.legend-ring {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px dashed #ffd580;
 }
 
 /* 経路外のノード・エッジを暗くする */
