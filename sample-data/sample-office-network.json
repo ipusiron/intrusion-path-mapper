@@ -1,16 +1,16 @@
 {
   "meta": { "title": "Office Network", "author": "ipusiron", "created_at": "2025-10-01" },
   "nodes": [
-    { "id": "internet",     "type": "gateway", "label": "インターネット",   "vuln": 0.40, "importance": 0.10 },
-    { "id": "firewall",     "type": "gateway", "label": "ファイアウォール", "vuln": 0.25, "importance": 0.60 },
-    { "id": "router",       "type": "gateway", "label": "ルーター",         "vuln": 0.35, "importance": 0.50 },
-    { "id": "wireless_ap",  "type": "gateway", "label": "無線AP",           "vuln": 0.70, "importance": 0.40 },
-    { "id": "sales_pc",     "type": "device",  "label": "営業部PC",         "vuln": 0.80, "importance": 0.50 },
-    { "id": "accounting_pc","type": "device",  "label": "経理部PC",         "vuln": 0.70, "importance": 0.80 },
-    { "id": "admin_pc",     "type": "device",  "label": "管理部PC",         "vuln": 0.60, "importance": 0.80 },
-    { "id": "file_server",  "type": "server",  "label": "ファイルサーバー", "vuln": 0.50, "importance": 0.90 },
-    { "id": "ad_server",    "type": "server",  "label": "ADサーバー",       "vuln": 0.30, "importance": 0.95 },
-    { "id": "nas",          "type": "server",  "label": "NAS",              "vuln": 0.50, "importance": 0.85 }
+    { "id": "internet",     "type": "gateway", "label": "インターネット", "label_en": "Internet",   "vuln": 1.00, "importance": 0.10 },
+    { "id": "firewall",     "type": "gateway", "label": "ファイアウォール", "label_en": "Firewall", "vuln": 0.25, "importance": 0.60 },
+    { "id": "router",       "type": "gateway", "label": "ルーター", "label_en": "Router",         "vuln": 0.35, "importance": 0.50 },
+    { "id": "wireless_ap",  "type": "gateway", "label": "無線AP", "label_en": "Wireless AP",           "vuln": 0.70, "importance": 0.40 },
+    { "id": "sales_pc",     "type": "device",  "label": "営業部PC", "label_en": "Sales PC",         "vuln": 0.80, "importance": 0.50 },
+    { "id": "accounting_pc","type": "device",  "label": "経理部PC", "label_en": "Accounting PC",         "vuln": 0.70, "importance": 0.80 },
+    { "id": "admin_pc",     "type": "device",  "label": "管理部PC", "label_en": "Admin dept. PC",         "vuln": 0.60, "importance": 0.80 },
+    { "id": "file_server",  "type": "server",  "label": "ファイルサーバー", "label_en": "File server", "vuln": 0.50, "importance": 0.90 },
+    { "id": "ad_server",    "type": "server",  "label": "ADサーバー", "label_en": "AD server",       "vuln": 0.30, "importance": 0.95 },
+    { "id": "nas",          "type": "server",  "label": "NAS", "label_en": "NAS",              "vuln": 0.50, "importance": 0.85 }
   ],
   "edges": [
     { "source": "internet",     "target": "firewall",     "weight": 1.0 },

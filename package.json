@@ -1,0 +1,8 @@
+{
+  "name": "intrusion-path-mapper",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}

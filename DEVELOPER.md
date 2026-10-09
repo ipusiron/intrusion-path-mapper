@@ -1,6 +1,6 @@
 # 開発者向けドキュメント
 
-このドキュメントでは、Intrusion Path Mapperの内部実装、アルゴリズム、特殊なロジックについて解説します。
+このドキュメントでは、Intrusion Path Mapperの内部実装、アルゴリズム、特殊なロジックについて解説します。使い方と仕様の要約は[README.md](README.md)にあります。
 
 ---
 
@@ -12,7 +12,10 @@
 4. [グラフ可視化の実装](#グラフ可視化の実装)
 5. [データフォーマットと正規化](#データフォーマットと正規化)
 6. [セキュリティ対策](#セキュリティ対策)
-7. [パフォーマンス最適化](#パフォーマンス最適化)
+7. [日英対応](#日英対応)
+8. [パフォーマンス](#パフォーマンス)
+9. [テストとデバッグ](#テストとデバッグ)
+10. [拡張アイデア](#拡張アイデア)
 
 ---
 
@@ -20,705 +23,256 @@
 
 ### 技術スタック
 
-- **フロントエンドのみ**: HTML/CSS/JavaScript（バックエンド不要）
-- **D3.js v7**: グラフ可視化とforce-directedレイアウト
-- **完全クライアントサイド処理**: すべてのデータ処理がブラウザー内で完結
-- **GitHub Pages対応**: 静的サイトホスティング
+- HTML・CSS・JavaScript（ESモジュール）。ビルドなし、サーバーなし、npmの依存なし
+- D3.js 7.9.0（`vendor/d3/`に自己ホスト、ISC License）。d3-force・d3-drag・d3-zoomを使う
+- テストは`node --test`（Node.js 22以上）
 
 ### ファイル構成
 
-```
-intrusion-path-mapper/
-├── index.html              # メインHTMLファイル（UI構造）
-├── js/main.js              # コアロジック（1050行）
-├── css/style.css           # ダークテーマスタイル
-└── sample-data/            # プリセットシナリオ
-    ├── sample-facility.json
-    ├── sample-office-network.json
-    ├── sample-physical-intrusion.json
-    └── sample-social-engineering.json
-```
+| ファイル | 役割 |
+|---|---|
+| `js/ipm-core.js` | 計算部。DOMとD3に触れない純粋な関数だけを置く（テストから直接読む） |
+| `js/ipm-messages.js` | 画面の文言。`MESSAGES.ja`と`MESSAGES.en`は同じキーを持つ |
+| `js/main.js` | 画面の処理。D3での描画、ズーム、結果の一覧、アニメーション、編集、インポート・エクスポート、言語の切り替え |
+| `index.html` | 画面の骨組み。固定の文言は`data-i18n`で辞書から入れる |
+| `css/style.css` | 配色（CSS変数）、配置、幅860px以下の1列表示、`prefers-reduced-motion` |
 
 ### データフロー
 
 ```
-ユーザー入力 (JSON/UI)
-    ↓
-normalizeData() → データ検証・クリーニング
-    ↓
-buildAdjacency() → グラフを隣接リスト形式に変換
-    ↓
-yenKShortestPaths() → K最短経路を計算
-    ↓
-calculatePathMetrics() → リスク指標を計算
-    ↓
-renderKPathsResult() → 結果をUIに表示
+JSON
+  → parseGraphText() / normalizeGraph()   … 検証・正規化（読み込みを止める誤りは GraphError、直せるものは warnings）
+  → data = {meta, nodes, edges, attack_goals}（エッジの端点は常にIDの文字列）
+  → findPaths(data, start, goal, {mode, k, nodePenalty})
+      → buildAdjacency() → kShortestPaths()（Yen）→ pathMetrics()
+  → renderKPathsResult() → highlightPath() / animatePath()
 ```
 
 ---
 
 ## コアアルゴリズム
 
-### 1. Dijkstraの最短経路アルゴリズム
+### 1. 隣接リスト（2つの並べ方）
 
-**実装箇所**: `js/main.js:303-338`
-
-```javascript
-function dijkstra(nodes, adj, startIdx, goalIdx, excludedEdges = new Set())
-```
-
-**特徴**:
-- 隣接リスト形式のグラフ表現
-- エッジ除外機能（Yen's algorithmでの使用）
-- 計算量: O(V²)（V = ノード数）
-
-**コスト計算**:
-```javascript
-// エッジコスト = エッジ重み + ノードペナルティ
-const nCost = nodePenalty * (1 - nodes[ti].vuln);
-const w = Number(e.weight ?? 1) + nCost;
-```
-
-- `nodePenalty`: ユーザー設定可能（0〜2、デフォルト0.4）
-- `vuln`: ノードの脆弱性（0〜1、高いほど攻撃成功しやすい）
-- **逆説的設計**: 脆弱性が高い（vuln=1）→ コストが低い → 攻撃しやすい経路
-
-### 2. Yen's K-shortest paths アルゴリズム
-
-**実装箇所**: `js/main.js:341-412`
+`buildAdjacency(nodes, edges, {mode, nodePenalty})`は、エッジごとに行き先のノード`t`の値から重みを決めます。
 
 ```javascript
-function yenKShortestPaths(nodes, adj, startIdx, goalIdx, K)
+// 成功確率の高い順（mode: "prob"）
+w = -Math.log(nodes[t].vuln);           // vuln = 0 のノードへは辺を作らない（確率0で通れない）
+
+// コストの低い順（mode: "cost"）
+w = edge.weight + nodePenalty * (1 - nodes[t].vuln);
 ```
 
-**アルゴリズムの流れ**:
+成功確率は積`v1 × v2 × … × vn`です。対数を取ると`ln v1 + … + ln vn`の和になり、符号を反転した`−ln v`は0以上なので、Dijkstra法とYen法の前提（負の重みがない）を満たします。和が最小の経路が、積が最大の経路です。
 
-1. **初期化**: Dijkstraで最短経路を計算（A[0]）
-2. **ループ**: k=1 から K-1 まで繰り返し
-3. **Spur Path探索**:
-   - 前回の経路の各ノードを「スパーノード」として試す
-   - ルートパスと同じ経路を除外
-   - ルートパス内のノードを除外（スパーノード以外）
-   - 残りのグラフでDijkstraを実行
-4. **候補経路の管理**:
-   - 候補経路Bをコスト順にソート
-   - 最小コストの経路をAに追加
-5. **重複除去**: 既存経路と同一の経路は除外
+### 2. Dijkstra法
 
-**計算量**: O(K × V × (E + V log V))
-- K: 経路数
-- V: ノード数
-- E: エッジ数
+`dijkstra(adj, start, goal, blockedNodes, blockedEdges)`は二分ヒープ（`MinHeap`）で実装しています。ヒープから取り出した距離が記録より大きければ読み飛ばす、遅延削除の形です。`blockedNodes`（ノードの添字）と`blockedEdges`（`"u-v"`の文字列）は、Yen法が枝分かれを作るときに使います。
 
-**重要な最適化**:
-```javascript
-// エッジ除外（同じルートパスを持つ経路から）
-for (const p of A){
-  if (p.path.length > i && arraysEqual(p.path.slice(0, i+1), rootPath)){
-    if (p.path.length > i+1){
-      const edgeKey = `${p.path[i]}-${p.path[i+1]}`;
-      excludedEdges.add(edgeKey);
-    }
-  }
-}
-```
+### 3. YenのK最短経路
+
+`kShortestPaths(adj, start, goal, K)`の手順です。
+
+1. 1本目をDijkstra法で求めてAに入れる
+2. Aの最後の経路の各ノードを「枝分かれの点」として、そこまでの部分（root）を固定する
+3. rootが同じAの経路について、枝分かれの点から先へ出る辺を塞ぐ。rootの途中のノードも塞ぐ
+4. 枝分かれの点から目標までをDijkstra法で求め、rootとつないだ経路を候補Bに入れる（同じ経路は入れない）
+5. Bの中でコストが最小のものをAに移し、K本になるかBが空になるまで2〜5を繰り返す
+
+テスト（`test/core.test.js`）では、4つのサンプルのすべての開始と目標の組で、全単純経路を列挙した総当たりと結果を比べています（コスト順はノード難易度の重み0・0.4・2、成功確率順は確率の積の大きい順）。
 
 ---
 
 ## リスク評価ロジック
 
-### 成功確率の計算
-
-**実装箇所**: `js/main.js:436-442`
+### 成功確率
 
 ```javascript
-// 成功確率 = 各ノードの脆弱性の積
-let successProb = 1.0;
-for (const node of pathNodes){
-  successProb *= node.vuln;
-}
+// pathMetrics(nodes, edges, path, nodePenalty)
+let successProb = 1;
+for (let i = 1; i < path.length; i++) successProb *= nodes[path[i]].vuln;   // i = 0（開始ノード）は数えない
 ```
 
-**意味**:
-- 各ノードでの攻撃成功確率を連鎖的に乗算
-- 例: 3つのノード（vuln=0.8, 0.7, 0.6）
-  - 成功確率 = 0.8 × 0.7 × 0.6 = 33.6%
+vulnは「手前のノードにいる攻撃者が、そのノードを突破できる確率」です。攻撃者はすでに開始ノードにいるので、開始ノードのvulnは掛けません。各ノードの突破は独立と仮定しています。
 
-**特性**:
-- 経路が長いほど成功確率は低下（リスク軽減）
-- 1つでも脆弱性が低いノードがあると全体確率が下がる
-
-### リスク指標の計算
-
-**実装箇所**: `js/main.js:451-454`
+### リスク
 
 ```javascript
-// リスク指標 = 成功確率 × 最大重要度 × (1/√経路長)
-const riskIndex = successProb * maxImportance * (1 / Math.sqrt(pathLength));
+risk = successProb * nodes[goal].importance;   // 可能性 × 影響
 ```
 
-**各要素の意味**:
+同じ目標への経路どうしでは、リスクの順は成功確率の順と同じです。
 
-| 要素 | 意味 | 範囲 |
+### コスト
+
+`weightedCost()`は、コスト順の重み（`weight + nodePenalty × (1 − vuln)`）の和です。成功確率順で並べたときも、比べられるように表示します。
+
+### 表示の桁
+
+| 関数 | 規則 | 例 |
 |---|---|---|
-| `successProb` | 攻撃成功確率 | 0.0〜1.0 |
-| `maxImportance` | 経路上の最大重要度 | 0.0〜1.0 |
-| `1/√pathLength` | 経路長の逆数（平方根） | 小さいほど長い経路 |
-
-**設計思想**:
-- **高リスク経路**: 短く、脆弱で、重要な資産を含む
-- **低リスク経路**: 長く、堅牢で、重要度が低い
-
-**平方根を使う理由**:
-- 線形の逆数（1/n）では経路長の影響が大きすぎる
-- 平方根（1/√n）で経路長の影響を緩和
-- 例:
-  - 経路長3 → 1/√3 ≈ 0.577
-  - 経路長6 → 1/√6 ≈ 0.408（約71%）
-  - 経路長9 → 1/√9 ≈ 0.333（約58%）
-
-### リスク指標の具体例
-
-**ケース1: 高リスク経路**
-```
-経路: ext → pc1 → srv1（3ノード）
-vuln: 0.8, 0.7, 0.9
-importance: 0.1, 0.4, 0.95
-```
-- 成功確率 = 0.8 × 0.7 × 0.9 = 0.504 (50.4%)
-- 最大重要度 = 0.95
-- リスク指標 = 0.504 × 0.95 × (1/√3) = 0.276
-
-**ケース2: 低リスク経路**
-```
-経路: ext → lobby → corridor → door1 → door2 → room → srv1（7ノード）
-vuln: 0.4, 0.3, 0.2, 0.3, 0.3, 0.4, 0.5
-importance: 0.1, 0.2, 0.1, 0.2, 0.2, 0.3, 0.9
-```
-- 成功確率 = 0.4 × 0.3 × 0.2 × 0.3 × 0.3 × 0.4 × 0.5 = 0.000216 (0.0216%)
-- 最大重要度 = 0.9
-- リスク指標 = 0.000216 × 0.9 × (1/√7) = 0.000074
-
-→ ケース1はケース2の約**3,730倍**のリスク
+| `formatPercent(p)` | 10%以上は小数1桁、それ未満は有効数字3桁、0.001%未満は指数表記 | 51.2%、2.66%、0.292%、5.00e-7% |
+| `formatScore(v)` | 有効数字3桁、0.0001未満は指数表記 | 0.0253、0.00997 |
+| `formatCost(c)` | 小数2桁 | 8.70 |
 
 ---
 
 ## グラフ可視化の実装
 
-### D3.js Force Simulationの設定
-
-**実装箇所**: `js/main.js:190-195`
+### Force Simulation
 
 ```javascript
-sim = d3.forceSimulation(graphData.nodes)
-  .force("link", d3.forceLink(graphData.edges)
-    .id(d=>d.id)
-    .distance(e=> 40 + e.weight*30)
-    .strength(0.3))
+d3.forceSimulation(nodes)
+  .force("link", d3.forceLink(links).id(d => d.id).distance(e => 40 + Math.min(e.weight, 10) * 30).strength(0.3))
   .force("charge", d3.forceManyBody().strength(-220))
-  .force("center", d3.forceCenter(width()/2, height()/2))
-  .force("collide", d3.forceCollide().radius(d=> 12 + d.importance*12))
-  .on("tick", ticked);
+  .force("center", d3.forceCenter(width / 2, height / 2))
+  .force("collide", d3.forceCollide().radius(d => 12 + d.importance * 12))
 ```
 
-**各Forceの役割**:
+- D3は`forceLink`に渡したエッジの`source`・`target`をノードのオブジェクトに置き換えます。`drawGraph()`はエッジの写し（`links`）を渡し、`data.edges`はIDの文字列のまま保ちます（エクスポートと削除が壊れないようにするため）
+- 新しいマップは、先に300回`tick()`してから描き、`fitView()`で全体が収まる縮尺にします。d3-forceの初期配置と乱数は決まっているので、同じマップなら毎回同じ配置になります
+- 編集のあとは今の配置と縮尺を保ち、座標のないノード（追加したばかり）があるときだけシミュレーションを動かします
 
-| Force | パラメーター | 効果 |
-|---|---|---|
-| `link` | distance: 40 + weight×30 | エッジの長さ（重いエッジほど長く） |
-| `link` | strength: 0.3 | リンクの強度（柔軟性） |
-| `charge` | strength: -220 | ノード間の反発力（負＝反発） |
-| `center` | width/2, height/2 | 中心への引力 |
-| `collide` | radius: 12 + importance×12 | 衝突回避（重要なノードほど大きい） |
+### ズーム
 
-### ノードの色分けロジック
+`d3.zoom()`をSVGに付け、`g.zoom-layer`に`transform`をかけます。ノードの座標はシミュレーションの値のままなので、ポップアップの位置は`d3.zoomTransform(svg).apply([x, y])`で画面の座標に直します。`fitView()`は、ノードの範囲（右側のラベルの幅を含む）が凡例を避けて収まるように縮尺（0.2〜1.5）と位置を決めます。
 
-**実装箇所**: `js/main.js:212-224`
+### 矢印
 
-```javascript
-function colorByType(d){
-  if (d.color) return d.color;  // カスタムカラー優先
+`marker`は`markerUnits="userSpaceOnUse"`で、線の太さによらず一定の大きさにしています。線の終端は行き先の円の縁で止めます（矢印の先端が円に隠れないため）。強調した経路はCSSの`marker-end`で緑の矢印に切り替えます。
 
-  const t = (d.type||"node").toLowerCase();
-  if (t.includes("server")) return "#7cc7ff";   // 青系
-  if (t.includes("device")) return "#ffd580";   // オレンジ系
-  if (t.includes("account")) return "#c3a6ff";  // 紫系
-  if (t.includes("person")) return "#ffb3d9";   // ピンク系
-  if (t.includes("gateway") || t.includes("room")) return "#9affc3"; // 緑系
-  return "#9fb3c8";  // デフォルト（グレー）
-}
-```
+### ノードの色
 
-**部分一致検索の理由**:
-- `includes()`で柔軟なマッチング
-- 例: `"file_server"`, `"ad_server"`, `"server01"` すべてマッチ
+`typeColor(type)`は種類の名前に`server`・`device`・`account`・`person`・`gateway`・`room`を含むかで色を決め、どれでもなければ`node`の色です。`color`（`#rrggbb`）があればそれを使います。凡例の色（`.legend-color.type-*`）は`TYPE_COLORS`と同じ値で、テストで比べています。
 
-### アニメーション実装
+### アニメーション
 
-**実装箇所**: `js/main.js:678-792`
-
-**ステップバイステップ処理**:
-```javascript
-function animateStep(){
-  // 現在のノード: animate-current
-  // 過去のノード: animate-node
-  // 未来のノード: animate-future
-  // 経路外のノード: animate-dim（暗くする）
-
-  step++;
-  currentAnimation = setTimeout(animateStep, 1000); // 1秒ごと
-}
-```
-
-**CSS連携**:
-```css
-.animate-current { fill: #ffd700; }  /* ゴールド */
-.animate-node { fill: #4caf50; }     /* 緑 */
-.animate-future { fill: #2196f3; }   /* 青 */
-.animate-dim { opacity: 0.2; }       /* 半透明 */
-```
+`animatePath(index)`は1秒ごとに1手進め、通過したノード・いまのノード・これからのノードを別のクラスで塗ります。別の経路を選ぶ・探索し直す・マップを変える・言語を切り替えると`stopAnimation()`で止まります。
 
 ---
 
 ## データフォーマットと正規化
 
-### normalizeData関数
+`normalizeGraph(json)`は次の順に検証します。
 
-**実装箇所**: `js/main.js:96-120`
+| 種類 | 扱い |
+|---|---|
+| オブジェクトでない、nodes・edgesが配列でない、ノードが0個、上限超え | 読み込まない（`GraphError`） |
+| IDが`/^[A-Za-z0-9_-]{1,100}$/`に合わない、IDの重複、ラベルが200文字超 | 読み込まない |
+| 種類が英小文字・数字・`_`・`-`の1〜30文字でない | `node`にして警告 |
+| vuln・importanceが範囲外・数でない | 0〜1に直すか0.5にして警告 |
+| 色が`#rrggbb`でない、英語ラベルが文字列でない・長すぎる | 捨てて警告 |
+| weightが負 | 0にして警告。数でなければ1にして警告 |
+| 存在しないノードへのエッジ、自分自身へのエッジ、同じ向きの重複 | 捨てて件数を警告 |
 
-```javascript
-function normalizeData(json) {
-  const nmap = new Map();
-  const nodes = (json.nodes || []).map(n => {
-    const node = {
-      id: String(n.id),              // 文字列化
-      label: n.label ?? n.id,        // デフォルト値
-      type: n.type ?? "node",
-      vuln: clamp(Number(n.vuln ?? 0.5), 0, 1),       // 範囲制限
-      importance: clamp(Number(n.importance ?? 0.5), 0, 1)
-    };
-    if (n.color) node.color = n.color;  // カスタムカラー
-    nmap.set(node.id, node);
-    return node;
-  });
-
-  const edges = (json.edges || []).map(e => {
-    return {
-      source: String(e.source),
-      target: String(e.target),
-      weight: Number(e.weight ?? 1.0)
-    };
-  }).filter(e => nmap.has(e.source) && nmap.has(e.target));  // 孤立エッジ除去
-
-  return { meta: json.meta || {}, nodes, edges, attack_goals: json.attack_goals || [] };
-}
-```
-
-**重要な処理**:
-1. **型変換**: すべてのIDを文字列化
-2. **デフォルト値**: 未定義フィールドに安全なデフォルト値
-3. **範囲クランプ**: vuln/importanceを0〜1に制限
-4. **孤立エッジ除去**: 存在しないノードを参照するエッジを削除
-5. **カスタムカラー対応**: v1.1で追加
-
-### D3.jsのデータ変換問題
-
-**問題**: D3.jsがエッジのsource/targetをオブジェクトに変換
-
-```javascript
-// 元のデータ
-{source: "pc1", target: "srv1"}
-
-// D3.js force simulationが変換
-{source: {id: "pc1", ...}, target: {id: "srv1", ...}}
-```
-
-**解決策**: 両方の形式に対応
-
-```javascript
-const sourceId = typeof e.source === 'object' ? e.source.id : e.source;
-const targetId = typeof e.target === 'object' ? e.target.id : e.target;
-```
+エッジの端点がオブジェクト（`{id: …}`）でも、IDを取り出して読み込みます。`serializeGraph()`は保存に要るキーだけを書き出すので、エクスポートしたファイルはそのまま読み込み直せます（テストで往復を確かめています）。
 
 ---
 
 ## セキュリティ対策
 
-### 入力検証（バリデーション）
-
-**実装箇所**: `js/main.js:508-572`
-
-#### 1. ファイルサイズ制限
-
-```javascript
-const MAX_FILE_SIZE = 5 * 1024 * 1024;  // 5MB
-if (f.size > MAX_FILE_SIZE) {
-  alert("ファイルサイズが大きすぎます（最大5MB）");
-  return;
-}
-```
-
-**理由**: DoS攻撃防止
-
-#### 2. ノード/エッジ数制限
-
-```javascript
-if (nodes.length > 1000) {
-  throw new Error("ノード数が多すぎます（最大1000）");
-}
-if (edges.length > 5000) {
-  throw new Error("エッジ数が多すぎます（最大5000）");
-}
-```
-
-**理由**: ブラウザーのメモリー枯渇防止
-
-#### 3. ID/Label長制限
-
-```javascript
-if (id.length > 100) {
-  alert('IDが長すぎます（最大100文字）');
-  return;
-}
-if (label.length > 200) {
-  alert('ラベルが長すぎます（最大200文字）');
-  return;
-}
-```
-
-**理由**: XSS攻撃とメモリー効率
-
-#### 4. ID形式制限
-
-```javascript
-if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
-  alert('IDには英数字、アンダースコア、ハイフンのみ使用できます');
-  return;
-}
-```
-
-**理由**: インジェクション攻撃防止
-
-### Content Security Policy (CSP)
-
-**実装箇所**: `index.html:9`
-
-```html
-<meta http-equiv="Content-Security-Policy" content="
-  default-src 'self';
-  script-src 'self' https://d3js.org;
-  style-src 'self' 'unsafe-inline';
-  img-src 'self' data:;
-  connect-src 'self';
-  font-src 'self';
-  object-src 'none';
-  base-uri 'self';
-  form-action 'self';
-">
-```
-
-**各ディレクティブの意味**:
-
-| ディレクティブ | 許可 | 理由 |
-|---|---|---|
-| `default-src 'self'` | 同一オリジンのみ | デフォルト制限 |
-| `script-src 'self' https://d3js.org` | 自身とD3.js CDN | D3.js読込 |
-| `style-src 'self' 'unsafe-inline'` | 自身とインラインCSS | D3動的スタイル |
-| `img-src 'self' data:` | 自身とdata URI | faviconとSVG |
-| `object-src 'none'` | すべて禁止 | Flash等のプラグイン防止 |
-
-### その他のセキュリティヘッダー
-
-```html
-<meta http-equiv="X-Content-Type-Options" content="nosniff">
-<meta name="referrer" content="no-referrer">
-```
-
-- **X-Content-Type-Options**: MIMEタイプスニッフィング防止
-- **Referrer Policy**: リファラー情報を送信しない
+- meta要素のCSP：`default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'`。HTMLに`style`属性とインラインのイベントハンドラーを置かない（スタイルはCSSのクラスか、CSSOMの`element.style`への代入で変える）
+- 読み込んだ文字列は、DOMには`textContent`、SVGにはD3の`.text()`で入れる。`innerHTML`は使わない（テストで確かめる）
+- GitHub Pagesはレスポンスヘッダーを設定できません。`frame-ancestors`や`X-Frame-Options`はmeta要素では無視されるので、書いていません
+- localStorageに保存するのは言語の選択（`ipm_locale`）だけです。使えない環境でも動きます
 
 ---
 
-## パフォーマンス最適化
+## 日英対応
 
-### 1. アルゴリズムの計算量
-
-| アルゴリズム | 計算量 | 1000ノードの場合 |
-|---|---|---|
-| Dijkstra | O(V²) | 1,000,000回 |
-| Yen's K-shortest | O(K×V×(E+V log V)) | K×1000×(E+10,000) |
-| Force Simulation | O(V²) per tick | 1,000,000回/tick |
-
-### 2. 推奨ノード数
-
-| ノード数 | 経路探索速度 | Force Simulation |
-|---|---|---|
-| 〜50 | 瞬時 | スムーズ |
-| 50〜200 | 1秒以内 | 快適 |
-| 200〜500 | 数秒 | やや重い |
-| 500〜1000 | 10秒以上 | 重い（アニメーション推奨オフ） |
-
-### 3. 最適化テクニック
-
-#### エッジのインデックス化
-
-```javascript
-const idx = new Map(nodes.map((n,i)=>[n.id,i]));
-```
-
-- O(1)でノードIDからインデックスを取得
-
-#### Set による重複チェック
-
-```javascript
-const excludedEdges = new Set();
-if (excludedEdges.has(edgeKey)) continue;
-```
-
-- O(1)でエッジ除外を判定
-
-#### Force Simulation の早期終了
-
-```javascript
-if (u === goalIdx) break;  // ゴール到達で終了
-```
-
-- 不要な計算をスキップ
-
-### 4. メモリー使用量の見積もり
-
-**1ノードあたり**:
-```javascript
-{
-  id: "string",         // ~50 bytes
-  label: "string",      // ~100 bytes
-  type: "string",       // ~20 bytes
-  vuln: 0.5,           // 8 bytes (Number)
-  importance: 0.5,     // 8 bytes (Number)
-  x: 100, y: 100,      // 16 bytes (D3追加)
-  vx: 0, vy: 0         // 16 bytes (D3追加)
-}
-// 合計: ~218 bytes
-```
-
-**1000ノード**: 約218KB
-**5000エッジ**: 約100KB
-**合計**: 約320KB（許容範囲）
+- 初期言語は`resolveLocale({query, saved, languages})`で決めます（`?lang=` → 保存した選択 → ブラウザーの言語。日本語以外は英語）
+- `index.html`の固定の文言は`data-i18n`（textContent）・`data-i18n-aria`（aria-label）・`data-i18n-title`（title）で辞書から入れます
+- 切り替えたときは、持っている結果・選択中のノード・知らせ・通知を同じ値で描き直し、計算はし直しません
+- ノードの表示名は`nodeLabel(node, locale)`です。英語表示で`label_en`があればそれを使います
+- `main.js`のコード（コメントを除く）には日本語の文字列を置きません（テストで確かめます）
 
 ---
 
-## デバッグ方法
+## パフォーマンス
 
-### コンソールログの活用
+| 処理 | 計算量の目安 |
+|---|---|
+| Dijkstra法（二分ヒープ） | O((V＋E) log V) |
+| Yen法 | O(K・V・(V＋E) log V) |
+| 配置の事前計算 | 300回 × d3-forceの1回分（多体力はBarnes-Hut近似） |
 
-**リスク計算のデバッグ** (`js/main.js:432-455`):
+1,000ノード・約2,000エッジの鎖でK=10の探索が終わることをテストで確かめています。描画は数百ノードを超えると重くなるので、見やすさの点でも小さなマップに分けることをおすすめします。
 
-```javascript
-console.log('=== Path Metrics Calculation ===');
-console.log('Path indices:', pathResult.path);
-console.log('Path nodes:', pathNodes.map(n => ({id: n.id, vuln: n.vuln, importance: n.importance})));
-console.log(`Multiplying successProb ${successProb} by vuln ${node.vuln} (node: ${node.id})`);
-console.log('Final successProb:', successProb);
-console.log(`Risk Index: ${successProb} * ${maxImportance} * (1 / sqrt(${pathLength})) = ${riskIndex}`);
+---
+
+## テストとデバッグ
+
+```bash
+npm test                         # すべてのテスト
+node --test test/core.test.js    # 計算部だけ
+python -m http.server 8000       # 画面の確認（http://localhost:8000/?lang=ja）
 ```
 
-**使い方**:
-1. ブラウザーでF12キーを押す
-2. Consoleタブを開く
-3. 経路探索を実行
-4. 計算過程を確認
+| テスト | 内容 |
+|---|---|
+| `core.test.js` | 検証と正規化、往復、Yen法と総当たりの一致、指標と表示の桁、1,000ノード |
+| `html.test.js` | CSP、インラインのハンドラーとstyle属性がない、要素のid、`<dialog>`、D3のSHA-256とライセンス、凡例の色 |
+| `contrast.test.js` | 配色のコントラスト（4.5:1以上） |
+| `i18n.test.js` | 辞書のキーと埋め込み値の一致、英語に日本語がない、サンプルの英語ラベル |
+| `format.test.js` | 行の長さ、行数の下限、制御文字、計算部がDOMに触れない |
+| `readme.test.js` | READMEのYAML、日英の見出しの対応、数値の再計算、ディレクトリー構造 |
 
-### よくある問題と対処法
+計算部はDOMに依存しないので、Node.jsのREPLで直接試せます。
 
-#### 問題1: 成功確率が0%になる
-
-**原因**: 経路上にvuln=0のノードがある
-
-**確認方法**:
 ```javascript
-console.log('Path nodes:', pathNodes.map(n => ({id: n.id, vuln: n.vuln})));
+const core = await import("./js/ipm-core.js");
+const json = JSON.parse(require("fs").readFileSync("sample-data/sample-facility.json", "utf8"));
+const { graph } = core.normalizeGraph(json);
+core.findPaths(graph, "ext", "srv1", { mode: "prob", k: 3 });
 ```
-
-**対処法**: すべてのノードのvulnを0.01以上に設定
-
-#### 問題2: リスク指標が異常に高い
-
-**原因**: 経路長が1（開始＝目標）
-
-**確認方法**:
-```javascript
-console.log('Path length:', pathResult.path.length);
-```
-
-**対処法**: 開始と目標を別のノードに設定
-
-#### 問題3: 経路が見つからない
-
-**原因**: グラフが連結されていない
-
-**確認方法**:
-```javascript
-console.log('Adjacency list:', adj);
-```
-
-**対処法**: すべてのノードが経路で繋がっているか確認
 
 ---
 
 ## 拡張アイデア
 
-### 1. 双方向エッジのサポート
+### 1. 双方向エッジ
 
-現在は有向グラフのみサポート。無向グラフにするには:
+いまは有向グラフです。廊下のように双方向に通れる場所は、逆向きのエッジも足してください。`bidirectional: true`のような属性を足し、`buildAdjacency()`で逆向きの辺を作る形が考えられます。
 
-```javascript
-// buildAdjacency関数内に追加
-const nCost2 = nodePenalty * (1 - nodes[si].vuln);
-adj[ti].push({to:si, w:Number(e.weight ?? 1)+nCost2, eid:`${targetId}→${sourceId}`});
-```
+### 2. 対策の効果（経路を断つ点）
 
-### 2. エッジ属性の拡張
+ノードを1つ「通れない」（vuln＝0）にしたときに、成功確率の1位がどれだけ下がるかを全ノードについて計算すると、対策の優先順位の目安になります。すべての経路を断つ最小のノードの組（最小頂点カット）を求める方法もあります。
+
+### 3. エッジ属性の拡張
 
 ```json
-{
-  "source": "pc1",
-  "target": "srv1",
-  "weight": 1.2,
-  "type": "network",          // 追加
-  "protocol": "SSH",          // 追加
-  "authenticated": true       // 追加
-}
+{ "source": "pc1", "target": "srv1", "weight": 1.2, "technique": "T1021", "protocol": "SSH" }
 ```
 
-### 3. 時系列分析
+### 4. モンテカルロ法での検算
+
+各ノードの突破を乱数で試し、成功の割合が`pathMetrics()`の成功確率に近づくことを確かめられます（開始ノードは数えない）。
 
 ```javascript
-// ノードに時間属性を追加
-{
-  "id": "server01",
-  "available_hours": [9, 10, 11, 12, 13, 14, 15, 16, 17]  // 9時〜17時のみ
-}
-```
-
-### 4. 確率的シミュレーション
-
-```javascript
-// モンテカルロシミュレーション
-function simulateAttacks(path, nodes, trials = 10000) {
-  let successes = 0;
-  for (let i = 0; i < trials; i++) {
-    let success = true;
-    for (const nodeIdx of path.path) {
-      if (Math.random() > nodes[nodeIdx].vuln) {
-        success = false;
-        break;
-      }
-    }
-    if (success) successes++;
+function simulate(path, nodes, trials = 10000) {
+  let ok = 0;
+  for (let t = 0; t < trials; t++) {
+    if (path.slice(1).every(i => Math.random() < nodes[i].vuln)) ok++;
   }
-  return successes / trials;
+  return ok / trials;
 }
 ```
-
----
-
-## トラブルシューティング
-
-### Force Simulationが動かない
-
-**症状**: ノードが固定されたまま動かない
-
-**原因**: D3.jsのバージョン不一致
-
-**確認**:
-```javascript
-console.log(d3.version);  // "7.x.x" であることを確認
-```
-
-**対処**: `index.html`のD3.js CDNリンクを確認
-
-### JSONが読み込めない
-
-**症状**: "JSONの読み込みに失敗しました"エラー
-
-**原因**:
-1. JSON構文エラー（カンマ忘れ、クォート不足等）
-2. ファイルサイズが5MBを超えている
-3. ノード数/エッジ数が上限を超えている
-
-**対処**:
-```bash
-# JSON構文チェック
-python -m json.tool sample.json
-```
-
-### アニメーションが途中で止まる
-
-**症状**: 経路アニメーションが途中で停止
-
-**原因**: `currentAnimation`のタイムアウトがクリアされている
-
-**対処**: 再度▶ボタンをクリック
-
----
-
-## 貢献ガイドライン
-
-### コードスタイル
-
-- **インデント**: 2スペース
-- **文字列**: シングルクォート推奨
-- **セミコロン**: 必須
-- **関数名**: キャメルケース（例: `calculatePathMetrics`）
-- **定数**: UPPER_SNAKE_CASE（例: `MAX_FILE_SIZE`）
-
-### テスト方法
-
-```bash
-# ローカルサーバー起動
-python -m http.server 8000
-
-# ブラウザーで開く
-# http://localhost:8000
-
-# 各プリセットで動作確認
-# 1. 施設侵入（シンプル）
-# 2. オフィスネットワーク攻撃
-# 3. 物理的侵入経路
-# 4. ソーシャルエンジニアリング
-```
-
-### プルリクエストのチェックリスト
-
-- [ ] コンソールエラーがない
-- [ ] すべてのプリセットで動作する
-- [ ] 1000ノードでパフォーマンス劣化がない
-- [ ] セキュリティチェックに通過
-- [ ] README.mdを更新（必要に応じて）
 
 ---
 
 ## ライセンスと注意事項
 
-本ツールはMITライセンスの下で公開されています。
+本ツールはMIT Licenseで公開しています。D3.jsはISC Licenseです（`vendor/d3/LICENSE`）。
 
-**重要な注意**:
-- 教育・デモ目的専用
-- 実際の攻撃に使用しないこと
-- 機密情報を入力しないこと
-- 実運用環境でのセキュリティ評価を代替するものではない
+- 教育・検討の補助のためのツールです。実際の組織のセキュリティ評価の代わりにはなりません
+- 実在する組織の詳しい構成や機密情報を入力しないでください
 
 ---
 
 ## 参考文献
 
-- [Yen's Algorithm - Wikipedia](https://en.wikipedia.org/wiki/Yen%27s_algorithm)
-- [Dijkstra's Algorithm - Wikipedia](https://en.wikipedia.org/wiki/Dijkstra%27s_algorithm)
-- [D3.js Force Simulation](https://d3js.org/d3-force)
+- Jin Y. Yen, "Finding the K Shortest Loopless Paths in a Network," Management Science, Vol. 17, No. 11, pp. 712-716, 1971
+- NIST SP 800-30 Rev. 1, "Guide for Conducting Risk Assessments," 2012
+- [D3.js](https://d3js.org/)（[d3-force](https://d3js.org/d3-force)・[d3-zoom](https://d3js.org/d3-zoom)）
 - [Content Security Policy - MDN](https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP)
-
----
-
-**最終更新**: 2025-10-01
-**バージョン**: 1.1
-**メンテナー**: ipusiron
