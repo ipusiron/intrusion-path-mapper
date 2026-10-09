@@ -495,6 +495,99 @@ export function targetRisks(graph, startId) {
   return out.sort((a, b) => b.risk - a.risk || b.successProb - a.successProb || (a.id < b.id ? -1 : 1));
 }
 
+/* ---------- 対策の効果 ---------- */
+
+/**
+ * 1位の経路（成功確率が最大の経路）の途中のノードを1つずつ塞いだときの、成功確率の1位。
+ * 1位の経路に乗っていないノードを塞いでも1位は変わらないので、途中のノードだけを調べる。
+ * 塞いだあとの成功確率が小さい順（効果の大きい順）に並べる。届かなくなれば after は 0。
+ * @returns {{before: number, path: number[], rows: Array<{id: string, before: number, after: number, drop: number}>}}
+ */
+export function blockImpact(graph, startId, goalId) {
+  const { nodes, edges } = graph;
+  const { adj, index } = buildAdjacency(nodes, edges, { mode: "prob" });
+  const s = index.get(startId), g = index.get(goalId);
+  if (s === undefined || g === undefined || s === g) return { before: 0, path: [], rows: [] };
+  const best = dijkstra(adj, s, g);
+  if (!best) return { before: 0, path: [], rows: [] };
+  const before = pathMetrics(nodes, edges, best.path).successProb;
+  const rows = best.path.slice(1, -1).map(v => {
+    const r = dijkstra(adj, s, g, new Set([v]));
+    const after = r ? pathMetrics(nodes, edges, r.path).successProb : 0;
+    return { id: nodes[v].id, before, after, drop: before - after };
+  });
+  rows.sort((a, b) => a.after - b.after || (a.id < b.id ? -1 : 1));
+  return { before, path: best.path, rows };
+}
+
+/**
+ * すべての経路を断つ最小のノードの組（最小頂点カット）。成功確率が0より大きい経路だけを数える
+ * （vuln=0 のノードへは進めない）。ノードを入口と出口に分けた容量1の辺にして最大流を求め、
+ * 残余グラフで開始から届く側と届かない側の境目のノードを返す（開始に近い側の組）。
+ * @returns {{size: number, nodes: number[], direct: boolean}}
+ *   direct=true は開始から目標へ直接のエッジがある（ノードを塞いでも断てない）。届く経路がなければ size=0
+ */
+export function minVertexCut(graph, startId, goalId) {
+  const { nodes, edges } = graph;
+  const { adj, index } = buildAdjacency(nodes, edges, { mode: "prob" });
+  const s = index.get(startId), g = index.get(goalId);
+  if (s === undefined || g === undefined || s === g) return { size: 0, nodes: [], direct: false };
+  if (adj[s].some(e => e.to === g)) return { size: Infinity, nodes: [], direct: true };
+  const N = nodes.length;
+  const INF = N + 1;
+  // 頂点 v の入口は 2v、出口は 2v+1。開始と目標は内部の辺を容量 INF にする
+  const cap = new Map();
+  const nbr = Array.from({ length: 2 * N }, () => new Set());
+  const addArc = (a, b, c) => {
+    cap.set(`${a},${b}`, (cap.get(`${a},${b}`) || 0) + c);
+    if (!cap.has(`${b},${a}`)) cap.set(`${b},${a}`, 0);
+    nbr[a].add(b);
+    nbr[b].add(a);
+  };
+  for (let v = 0; v < N; v++) addArc(2 * v, 2 * v + 1, v === s || v === g ? INF : 1);
+  adj.forEach((list, u) => list.forEach(({ to }) => addArc(2 * u + 1, 2 * to, INF)));
+  const source = 2 * s + 1, sink = 2 * g;
+  let flow = 0;
+  for (;;) {
+    const prev = new Array(2 * N).fill(-1);
+    prev[source] = source;
+    const queue = [source];
+    while (queue.length && prev[sink] === -1) {
+      const a = queue.shift();
+      for (const b of nbr[a]) {
+        if (prev[b] === -1 && cap.get(`${a},${b}`) > 0) {
+          prev[b] = a;
+          queue.push(b);
+        }
+      }
+    }
+    if (prev[sink] === -1) break;
+    for (let b = sink; b !== source; b = prev[b]) {
+      const a = prev[b];
+      cap.set(`${a},${b}`, cap.get(`${a},${b}`) - 1);
+      cap.set(`${b},${a}`, cap.get(`${b},${a}`) + 1);
+    }
+    flow++;
+  }
+  // 残余グラフで開始から届く頂点の集合
+  const seen = new Set([source]);
+  const queue = [source];
+  while (queue.length) {
+    const a = queue.shift();
+    for (const b of nbr[a]) {
+      if (!seen.has(b) && cap.get(`${a},${b}`) > 0) {
+        seen.add(b);
+        queue.push(b);
+      }
+    }
+  }
+  const cut = [];
+  for (let v = 0; v < N; v++) {
+    if (v !== s && v !== g && seen.has(2 * v) && !seen.has(2 * v + 1)) cut.push(v);
+  }
+  return { size: flow, nodes: cut, direct: false };
+}
+
 /* ---------- エッジの編集（元の配列は変えず、新しい edges を返す） ---------- */
 
 /** ノードに出入りするエッジ */

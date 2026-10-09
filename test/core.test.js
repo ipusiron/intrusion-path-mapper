@@ -372,3 +372,87 @@ test("エッジの追加・変更・削除（元の配列は変えない）", ()
   assert.equal(core.parseWeight("0"), 0);
   assert.equal(core.parseWeight("1e400"), null);
 });
+
+/** 成功確率が0より大きい経路で、blocked（添字の集合）を通らずに s から g へ届くか */
+function reachable(graph, s, g, blocked) {
+  const { adj } = core.buildAdjacency(graph.nodes, graph.edges, { mode: "prob" });
+  const seen = new Set([s]);
+  const stack = [s];
+  while (stack.length) {
+    const u = stack.pop();
+    if (u === g) return true;
+    for (const { to } of adj[u]) {
+      if (!seen.has(to) && !blocked.has(to)) { seen.add(to); stack.push(to); }
+    }
+  }
+  return false;
+}
+
+function combinations(items, k, start = 0, acc = [], out = []) {
+  if (acc.length === k) { out.push([...acc]); return out; }
+  for (let i = start; i < items.length; i++) { acc.push(items[i]); combinations(items, k, i + 1, acc, out); acc.pop(); }
+  return out;
+}
+
+test("1位の経路のノードを1つ塞いだときの成功確率は、総当たりと一致する", () => {
+  for (const f of SAMPLES) {
+    const g = core.normalizeGraph(loadSample(f)).graph;
+    const { start, goal } = core.defaultEndpoints(g);
+    const { adj } = core.buildAdjacency(g.nodes, g.edges, { mode: "cost", nodePenalty: 0 });
+    const s = g.nodes.findIndex(n => n.id === start), t = g.nodes.findIndex(n => n.id === goal);
+    const best = blocked => Math.max(0, ...allSimplePaths(adj, s, t)
+      .filter(p => !p.path.some(i => blocked === i))
+      .map(p => core.pathMetrics(g.nodes, g.edges, p.path).successProb));
+    const impact = core.blockImpact(g, start, goal);
+    assert.ok(near(impact.before, best(-1)), f);
+    assert.equal(impact.rows.length, impact.path.length - 2, f);
+    for (const row of impact.rows) {
+      const v = g.nodes.findIndex(n => n.id === row.id);
+      assert.ok(impact.path.includes(v));
+      assert.ok(near(row.after, best(v)), `${f} ${row.id}`);
+    }
+    for (let i = 1; i < impact.rows.length; i++) assert.ok(impact.rows[i - 1].after <= impact.rows[i].after);
+  }
+});
+
+test("最小頂点カットは、塞ぐと届かなくなり、それより小さい組では断てない（全サンプルの全組）", () => {
+  let checked = 0;
+  for (const f of SAMPLES) {
+    const g = core.normalizeGraph(loadSample(f)).graph;
+    const N = g.nodes.length;
+    for (let s = 0; s < N; s++) for (let t = 0; t < N; t++) {
+      if (s === t) continue;
+      const cut = core.minVertexCut(g, g.nodes[s].id, g.nodes[t].id);
+      if (!reachable(g, s, t, new Set())) { assert.equal(cut.size, 0, `${f} ${s}->${t}`); continue; }
+      if (cut.direct) { assert.equal(cut.size, Infinity); continue; }
+      assert.equal(cut.nodes.length, cut.size, `${f} ${s}->${t}`);
+      assert.equal(reachable(g, s, t, new Set(cut.nodes)), false, `${f} ${s}->${t} 断てない`);
+      const inner = [...Array(N).keys()].filter(v => v !== s && v !== t);
+      for (const smaller of combinations(inner, cut.size - 1)) {
+        assert.equal(reachable(g, s, t, new Set(smaller)), true, `${f} ${s}->${t} より小さい組で断てた`);
+      }
+      checked++;
+    }
+  }
+  assert.ok(checked >= 100, String(checked)); // 届いて直接のエッジがない組は4サンプルで130組（2026-10-09 実測）
+});
+
+test("対策の効果の例（物理的侵入経路、屋外→サーバールーム）", () => {
+  const g = core.normalizeGraph(loadSample("sample-physical-intrusion.json")).graph;
+  const cut = core.minVertexCut(g, "outside", "server_room");
+  assert.deepEqual([cut.size, cut.nodes.map(i => g.nodes[i].id)], [1, ["ic_card_door"]]);
+  const impact = core.blockImpact(g, "outside", "server_room");
+  // 手計算: 2F窓を塞ぐと 1F窓経由の 0.6×0.95×0.9×0.95×0.5×0.4×0.2＝0.0195 が1位、2F廊下を塞ぐと 1F窓→1F廊下→一般社員 の
+  // 0.6×0.95×0.7×0.5×0.4×0.2＝0.01596、ICカード扉・サーバールーム扉を塞ぐと届かない
+  assert.deepEqual(impact.rows.map(r => [r.id, core.formatPercent(r.after)]), [
+    ["ic_card_door", "0%"], ["server_room_door", "0%"], ["corridor_2f", "1.60%"], ["window_2f", "1.95%"]
+  ]);
+  assert.equal(core.formatPercent(impact.before), "2.66%");
+});
+
+test("直接のエッジがあれば断てない、届かなければ組は空", () => {
+  const { graph } = core.normalizeGraph({ nodes: [{ id: "a" }, { id: "b" }, { id: "c" }], edges: [{ source: "a", target: "b" }] });
+  assert.deepEqual(core.minVertexCut(graph, "a", "b"), { size: Infinity, nodes: [], direct: true });
+  assert.deepEqual(core.minVertexCut(graph, "a", "c"), { size: 0, nodes: [], direct: false });
+  assert.deepEqual(core.blockImpact(graph, "a", "c"), { before: 0, path: [], rows: [] });
+});
