@@ -299,3 +299,75 @@ test("初期言語", () => {
   assert.equal(core.resolveLocale({ languages: ["fr"] }), "en");
   assert.equal(core.resolveLocale({}), "ja");
 });
+
+test("上位K本に共通するノード（開始と目標を除く）", () => {
+  const g = core.normalizeGraph(loadSample("sample-physical-intrusion.json")).graph;
+  const paths = core.findPaths(g, "outside", "server_room", { mode: "prob", k: 3 });
+  const ids = core.commonNodes(paths).map(i => g.nodes[i].id);
+  assert.deepEqual(ids, ["corridor_2f", "ic_card_door", "server_room_door"]);
+  // 返した以外の途中のノードは、どれかの経路が通らない
+  const inner = new Set(paths.flatMap(p => p.path.slice(1, -1)));
+  for (const i of inner) {
+    const all = paths.every(p => p.path.includes(i));
+    assert.equal(all, ids.includes(g.nodes[i].id), g.nodes[i].id);
+  }
+  assert.deepEqual(core.commonNodes(paths.slice(0, 1)), []);
+  assert.deepEqual(core.commonNodes([]), []);
+});
+
+test("目標ごとのリスクは、各ノードへの成功確率の最大値（総当たり）と一致し、リスクの大きい順", () => {
+  for (const f of SAMPLES) {
+    const g = core.normalizeGraph(loadSample(f)).graph;
+    const { adj } = core.buildAdjacency(g.nodes, g.edges, { mode: "cost", nodePenalty: 0 });
+    for (let s = 0; s < g.nodes.length; s++) {
+      const rows = core.targetRisks(g, g.nodes[s].id);
+      const byId = new Map(rows.map(r => [r.id, r]));
+      for (let t = 0; t < g.nodes.length; t++) {
+        if (t === s) continue;
+        const best = Math.max(0, ...allSimplePaths(adj, s, t).map(p => core.pathMetrics(g.nodes, g.edges, p.path).successProb));
+        const row = byId.get(g.nodes[t].id);
+        if (best === 0) { assert.equal(row, undefined, `${f} ${s}->${t}`); continue; }
+        assert.ok(row && near(row.successProb, best), `${f} ${s}->${t}`);
+        assert.ok(near(row.risk, best * g.nodes[t].importance));
+        assert.equal(row.path[0], s);
+        assert.equal(row.path[row.path.length - 1], t);
+      }
+      for (let i = 1; i < rows.length; i++) assert.ok(rows[i - 1].risk >= rows[i].risk);
+    }
+  }
+});
+
+test("目標ごとのリスク（物理的侵入経路、屋外から）の上位3件", () => {
+  const g = core.normalizeGraph(loadSample("sample-physical-intrusion.json")).graph;
+  const top = core.targetRisks(g, "outside").slice(0, 3).map(r => [r.id, core.formatPercent(r.successProb), core.formatScore(r.risk)]);
+  // 手計算: 2F窓 0.70×0.5、1F窓 0.60×0.4、一般社員 0.6×0.95×0.7＝0.399 に ×0.6
+  assert.deepEqual(top, [["window_2f", "70.0%", "0.350"], ["window_1f", "60.0%", "0.240"], ["employee", "39.9%", "0.239"]]);
+});
+
+test("エッジの追加・変更・削除（元の配列は変えない）", () => {
+  const g = core.normalizeGraph({ nodes: [{ id: "a" }, { id: "b" }, { id: "c" }], edges: [{ source: "b", target: "a", weight: 2 }] }).graph;
+  const before = JSON.stringify(g.edges);
+  assert.equal(core.addEdge(g, "a", "a", 1).error, "sameNode");
+  assert.equal(core.addEdge(g, "a", "x", 1).error, "unknownNode");
+  assert.equal(core.addEdge(g, "a", "b", -1).error, "weight");
+  assert.equal(core.addEdge(g, "a", "b", "").error, "weight");
+  assert.equal(core.addEdge(g, "b", "a", 1).error, "edgeExists");
+  const one = core.addEdge(g, "a", "c", "1.5", { bidirectional: true });
+  assert.deepEqual([one.error, one.added, one.reverseSkipped], [null, 2, false]);
+  assert.deepEqual(one.edges.slice(1), [{ source: "a", target: "c", weight: 1.5 }, { source: "c", target: "a", weight: 1.5 }]);
+  const skip = core.addEdge(g, "a", "b", 1, { bidirectional: true });
+  assert.deepEqual([skip.added, skip.reverseSkipped], [1, true]);
+  assert.equal(JSON.stringify(g.edges), before);
+  assert.deepEqual(core.edgesOf({ ...g, edges: one.edges }, "a"), {
+    outgoing: [{ source: "a", target: "c", weight: 1.5 }],
+    incoming: [{ source: "b", target: "a", weight: 2 }, { source: "c", target: "a", weight: 1.5 }]
+  });
+  const up = core.updateEdgeWeight(g, "b", "a", 0);
+  assert.deepEqual([up.error, up.edges[0].weight], [null, 0]);
+  assert.equal(core.updateEdgeWeight(g, "a", "b", 1).error, "noEdge");
+  assert.equal(core.updateEdgeWeight(g, "b", "a", "x").error, "weight");
+  assert.deepEqual(core.removeEdge(g, "b", "a"), []);
+  assert.equal(JSON.stringify(g.edges), before);
+  assert.equal(core.parseWeight("0"), 0);
+  assert.equal(core.parseWeight("1e400"), null);
+});

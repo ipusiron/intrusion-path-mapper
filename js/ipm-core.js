@@ -437,6 +437,123 @@ export function findPaths(graph, startId, goalId, { mode = "prob", k = 3, nodePe
   return kShortestPaths(adj, s, g, sanitizeK(k)).map(r => ({ path: r.path, ...pathMetrics(nodes, edges, r.path, nodePenalty) }));
 }
 
+/**
+ * 経路の列がすべて通るノード（開始と目標を除く）の添字を、1本目の経路の順で返す。
+ * 2本未満なら空（1本だけなら全部が「共通」になって意味がない）。
+ */
+export function commonNodes(paths) {
+  if (!paths || paths.length < 2) return [];
+  const first = paths[0].path;
+  const inner = first.slice(1, -1);
+  return inner.filter(i => paths.every(p => p.path.slice(1, -1).includes(i)));
+}
+
+/** start から全ノードへの最短経路の木（距離と直前のノード） */
+function shortestTree(adj, start) {
+  const N = adj.length;
+  const dist = new Array(N).fill(Infinity);
+  const prev = new Array(N).fill(-1);
+  dist[start] = 0;
+  const heap = new MinHeap();
+  heap.push([0, start]);
+  while (heap.size) {
+    const [d, u] = heap.pop();
+    if (d > dist[u]) continue;
+    for (const { to, w } of adj[u]) {
+      const nd = d + w;
+      if (nd < dist[to]) {
+        dist[to] = nd;
+        prev[to] = u;
+        heap.push([nd, to]);
+      }
+    }
+  }
+  return { dist, prev };
+}
+
+/**
+ * 目標ごとのリスク。開始ノードから到達できる各ノードについて、成功確率が最大の経路
+ * （−ln(vuln) を重みにした Dijkstra を1回）と、リスク＝成功確率×そのノードの importance を求める。
+ * リスクの大きい順（同じなら成功確率の大きい順、ID の順）に並べる。
+ * @returns {Array<{id: string, path: number[], successProb: number, importance: number, risk: number, hops: number}>}
+ */
+export function targetRisks(graph, startId) {
+  const { nodes, edges } = graph;
+  const { adj, index } = buildAdjacency(nodes, edges, { mode: "prob" });
+  const s = index.get(startId);
+  if (s === undefined) return [];
+  const { dist, prev } = shortestTree(adj, s);
+  const out = [];
+  nodes.forEach((n, i) => {
+    if (i === s || dist[i] === Infinity) return;
+    const path = [];
+    for (let v = i; v !== -1; v = prev[v]) path.push(v);
+    path.reverse();
+    const { successProb } = pathMetrics(nodes, edges, path);
+    out.push({ id: n.id, path, successProb, importance: n.importance, risk: successProb * n.importance, hops: path.length - 1 });
+  });
+  return out.sort((a, b) => b.risk - a.risk || b.successProb - a.successProb || (a.id < b.id ? -1 : 1));
+}
+
+/* ---------- エッジの編集（元の配列は変えず、新しい edges を返す） ---------- */
+
+/** ノードに出入りするエッジ */
+export function edgesOf(graph, id) {
+  return {
+    outgoing: graph.edges.filter(e => endpointId(e.source) === id),
+    incoming: graph.edges.filter(e => endpointId(e.target) === id)
+  };
+}
+
+/** weight の入力（0以上の有限の数）。不正なら null */
+export function parseWeight(v) {
+  if (typeof v === "string" && v.trim() === "") return null;
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+function hasEdge(edges, source, target) {
+  return edges.some(e => endpointId(e.source) === source && endpointId(e.target) === target);
+}
+
+/**
+ * エッジを足す。bidirectional なら逆向きも足す（逆向きがすでにあれば足さない）。
+ * @returns {{edges: Array, added: number, reverseSkipped: boolean, error: string|null}}
+ *   error は "unknownNode" | "sameNode" | "weight" | "edgeExists" | "tooManyEdges"
+ */
+export function addEdge(graph, source, target, weight, { bidirectional = false } = {}) {
+  const fail = error => ({ edges: graph.edges, added: 0, reverseSkipped: false, error });
+  const ids = new Set(graph.nodes.map(n => n.id));
+  if (!ids.has(source) || !ids.has(target)) return fail("unknownNode");
+  if (source === target) return fail("sameNode");
+  const w = parseWeight(weight);
+  if (w === null) return fail("weight");
+  if (hasEdge(graph.edges, source, target)) return fail("edgeExists");
+  const edges = [...graph.edges, { source, target, weight: w }];
+  let reverseSkipped = false;
+  if (bidirectional) {
+    if (hasEdge(graph.edges, target, source)) reverseSkipped = true;
+    else edges.push({ source: target, target: source, weight: w });
+  }
+  if (edges.length > LIMITS.maxEdges) return fail("tooManyEdges");
+  return { edges, added: edges.length - graph.edges.length, reverseSkipped, error: null };
+}
+
+/** エッジの weight を変える。@returns {{edges: Array, error: string|null}}（error は "weight" | "noEdge"） */
+export function updateEdgeWeight(graph, source, target, weight) {
+  const w = parseWeight(weight);
+  if (w === null) return { edges: graph.edges, error: "weight" };
+  if (!hasEdge(graph.edges, source, target)) return { edges: graph.edges, error: "noEdge" };
+  const edges = graph.edges.map(e =>
+    endpointId(e.source) === source && endpointId(e.target) === target ? { source, target, weight: w } : e);
+  return { edges, error: null };
+}
+
+/** エッジを消す */
+export function removeEdge(graph, source, target) {
+  return graph.edges.filter(e => !(endpointId(e.source) === source && endpointId(e.target) === target));
+}
+
 /* ---------- 表示 ---------- */
 
 /** 確率を百分率で。10%以上は小数1桁、それ未満は有効数字3桁、0.001%未満は指数表記 */
