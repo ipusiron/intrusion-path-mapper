@@ -35,12 +35,14 @@ export const MESSAGES = {
     "panel.nodeInfo": "ノード情報",
 
     "panel.tips": "ヒント",
-    "tips.drag": "ノードをドラッグしてレイアウト調整できます。Tabキーでノードを選び、Enterで情報を出せます",
+    "tips.drag": "ノードをドラッグして配置を調整できます。Tabキーでノードを選び、Enterで情報を出せます",
+    "tips.zoom": "ホイールやピンチで拡大・縮小、背景のドラッグで移動できます。「全体を表示」で元に戻ります",
     "tips.vuln": "ノードのvulnは、手前のノードにいる攻撃者がそのノードを突破できる確率です",
     "tips.prob": "成功確率は、開始ノードを除く経路上のノードのvulnの積です",
     "tips.weight": "エッジのweightは移動コストです（小さいほど容易）。コスト順で使います",
 
     "graph.aria": "侵入経路のマップ",
+    "btn.fit": "全体を表示",
     "legend.title": "ノードタイプ",
 
     "dialog.color": "Color (カスタム色):",
@@ -162,11 +164,13 @@ export const MESSAGES = {
 
     "panel.tips": "Tips",
     "tips.drag": "Drag nodes to adjust the layout. Press Tab to focus a node and Enter to show its details.",
+    "tips.zoom": "Zoom with the wheel or a pinch, and pan by dragging the background. \"Fit to view\" resets the view.",
     "tips.vuln": "A node's vuln is the probability that an attacker at the previous node gets through this node.",
     "tips.prob": "The success probability is the product of vuln over the nodes on the path, excluding the start node.",
     "tips.weight": "An edge's weight is its traversal cost (lower is easier). It is used for the cost order.",
 
     "graph.aria": "Intrusion path map",
+    "btn.fit": "Fit to view",
     "legend.title": "Node types",
 
     "dialog.color": "Color (custom):",

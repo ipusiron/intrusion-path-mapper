@@ -110,7 +110,8 @@
       <section class="panel">
         <h2 data-i18n="panel.tips">ヒント</h2>
         <ul class="tips">
-          <li data-i18n="tips.drag">ノードをドラッグしてレイアウト調整できます。Tabキーでノードを選び、Enterで情報を出せます</li>
+          <li data-i18n="tips.drag">ノードをドラッグして配置を調整できます。Tabキーでノードを選び、Enterで情報を出せます</li>
+          <li data-i18n="tips.zoom">ホイールやピンチで拡大・縮小、背景のドラッグで移動できます。「全体を表示」で元に戻ります</li>
           <li data-i18n="tips.vuln">ノードのvulnは、手前のノードにいる攻撃者がそのノードを突破できる確率です</li>
           <li data-i18n="tips.prob">成功確率は、開始ノードを除く経路上のノードのvulnの積です</li>
           <li data-i18n="tips.weight">エッジのweightは移動コストです（小さいほど容易）。コスト順で使います</li>
@@ -121,6 +122,7 @@
     <section class="canvas-wrap">
       <svg id="graph" width="100%" height="100%" role="img" aria-label="侵入経路のマップ" data-i18n-aria="graph.aria"></svg>
       <div id="nodePopup" class="node-popup" hidden></div>
+      <button id="fitBtn" type="button" class="fit-btn" data-i18n="btn.fit">全体を表示</button>
 
       <!-- グラフ凡例 -->
       <div class="graph-legend">

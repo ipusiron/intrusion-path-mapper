@@ -102,6 +102,16 @@ button:disabled, input:disabled { opacity: 0.55; cursor: not-allowed; }
 }
 .canvas-wrap { position: relative; min-width: 0; overflow: hidden; }
 
+/* 全体を表示（マップの左上） */
+.fit-btn {
+  position: absolute;
+  top: 12px;
+  left: 12px;
+  z-index: 100;
+  font-size: 13px;
+  background: rgba(21, 25, 37, 0.95);
+}
+
 /* グラフ凡例 */
 .graph-legend {
   position: absolute;

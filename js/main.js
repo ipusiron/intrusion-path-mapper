@@ -15,6 +15,7 @@ const height = () => svg.node().clientHeight;
 
 let data = null;            // {meta, nodes:[{id,label,label_en?,type,vuln,importance,color?}], edges:[{source,target,weight}], attack_goals}
 let sim = null;
+let zoomLayer = null;
 let linkSel = null;
 let nodeSel = null;
 let locale = "ja";
@@ -36,6 +37,7 @@ const fileInput   = document.getElementById("fileInput");
 const nodePopup   = document.getElementById("nodePopup");
 const statusMsg   = document.getElementById("statusMsg");
 const langToggle  = document.getElementById("langToggle");
+const fitBtn      = document.getElementById("fitBtn");
 
 // 通知UI
 const presetNotification = document.getElementById("presetNotification");
@@ -229,7 +231,11 @@ function nodeRadius(d) {
   return 10 + d.importance * 10;
 }
 
-function drawGraph(graphData) {
+/**
+ * マップを描く。fit=true（新しいマップ）は配置を先に計算して全体が収まる縮尺にする。
+ * fit=false（編集のあと）は今の配置と縮尺を保ち、新しいノードだけを動かして落ち着かせる。
+ */
+function drawGraph(graphData, { fit = true } = {}) {
   stopAnimation();
   if (sim) sim.stop();
   svg.selectAll("*").remove();
@@ -251,7 +257,10 @@ function drawGraph(graphData) {
   // D3 は source/target をノードのオブジェクトに置き換えるので、描画用の写しを渡す（data.edges は ID のまま）
   const links = graphData.edges.map(e => ({ source: e.source, target: e.target, weight: e.weight }));
 
-  linkSel = svg.append("g").attr("class","links")
+  // ズーム・パンはこの層に transform をかける（座標はシミュレーションの値のまま）
+  zoomLayer = svg.append("g").attr("class", "zoom-layer").attr("transform", d3.zoomTransform(svg.node()));
+
+  linkSel = zoomLayer.append("g").attr("class","links")
     .selectAll("line")
     .data(links)
     .enter()
@@ -260,7 +269,7 @@ function drawGraph(graphData) {
     .attr("stroke","#8aa0b6")
     .attr("marker-end","url(#arrow)");
 
-  const nodeG = svg.append("g").attr("class","nodes")
+  const nodeG = zoomLayer.append("g").attr("class","nodes")
     .selectAll("g")
     .data(graphData.nodes, d => d.id)
     .enter()
@@ -296,12 +305,22 @@ function drawGraph(graphData) {
     }
   });
 
+  const hasNew = graphData.nodes.some(n => !Number.isFinite(n.x)); // 座標のないノード（追加したばかり）
   sim = d3.forceSimulation(graphData.nodes)
     .force("link", d3.forceLink(links).id(d=>d.id).distance(e=> 40 + Math.min(e.weight, 10)*30).strength(0.3))
     .force("charge", d3.forceManyBody().strength(-220))
     .force("center", d3.forceCenter(width()/2, height()/2))
     .force("collide", d3.forceCollide().radius(d=> 12 + d.importance*12))
-    .on("tick", ticked);
+    .stop();
+
+  if (fit) {
+    // 先に配置を計算してから描く（ノードが画面の外へ飛んでいかず、同じマップなら毎回同じ配置になる）
+    for (let i = 0; i < 300; i++) sim.tick();
+  }
+  ticked();
+  sim.on("tick", ticked);
+  if (fit) fitView();
+  else if (hasNew) sim.alpha(0.3).restart();
 
   function ticked() {
     // 線の終端を行き先の円の縁で止め、矢印の先端が円に隠れないようにする
@@ -322,8 +341,39 @@ function drawGraph(graphData) {
 }
 
 // 画面の大きさが変わったら中心を合わせ直す（リスナーは1つだけ）
+// ズーム・パン（ホイール・ピンチ・ドラッグ）。ダブルクリックでのズームは使わない
+const zoom = d3.zoom()
+  .scaleExtent([0.2, 4])
+  .on("zoom", (event) => {
+    if (zoomLayer) zoomLayer.attr("transform", event.transform);
+    hidePopup();
+  });
+svg.call(zoom).on("dblclick.zoom", null);
+
+/** ノード全体（右側のラベルを含む）が凡例を避けて収まる縮尺と位置にする */
+function fitView() {
+  if (!data || !data.nodes.length) return;
+  const w = width(), h = height();
+  if (!w || !h) return;
+  const narrow = window.matchMedia("(max-width: 860px)").matches;
+  const legend = document.querySelector(".graph-legend");
+  const reserveBottom = narrow ? legend.offsetHeight + 16 : 0;
+  const reserveRight = narrow ? 0 : legend.offsetWidth + 24;
+  const xs = data.nodes.map(n => n.x), ys = data.nodes.map(n => n.y);
+  const minX = Math.min(...xs) - 24, maxX = Math.max(...xs) + 96;
+  const minY = Math.min(...ys) - 24, maxY = Math.max(...ys) + 24;
+  const availW = Math.max(40, w - reserveRight - 32), availH = Math.max(40, h - reserveBottom - 32);
+  const k = core.clamp(Math.min(availW / (maxX - minX), availH / (maxY - minY)), 0.2, 1.5);
+  const tx = (w - reserveRight) / 2 - k * (minX + maxX) / 2;
+  const ty = (h - reserveBottom) / 2 - k * (minY + maxY) / 2;
+  svg.call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(k));
+}
+
+// 画面の大きさが変わったら全体を表示し直す（リスナーは1つだけ）
+let resizeTimer = null;
 window.addEventListener("resize", ()=> {
-  if (sim) sim.force("center", d3.forceCenter(width()/2, height()/2)).alpha(0.3).restart();
+  clearTimeout(resizeTimer);
+  resizeTimer = setTimeout(fitView, 150);
 });
 
 function dragstarted(event,d){
@@ -416,15 +466,18 @@ function showNodeInfo(n){
   );
   nodePopup.hidden = false;
 
-  // ノードの右側に置き、キャンバスの外へはみ出さないように寄せる
+  // ノードの右側に置き、キャンバスの外へはみ出さないように寄せる（ズームの縮尺と位置を反映する）
+  const tr = d3.zoomTransform(svg.node());
+  const [cx, cy] = tr.apply([n.x, n.y]);
+  const r = nodeRadius(n) * tr.k;
   const wrapW = canvasWrap.clientWidth;
   const wrapH = canvasWrap.clientHeight;
   const pw = nodePopup.offsetWidth;
   const ph = nodePopup.offsetHeight;
-  let x = n.x + nodeRadius(n) + 10;
-  if (x + pw > wrapW - 8) x = n.x - nodeRadius(n) - 10 - pw;
+  let x = cx + r + 10;
+  if (x + pw > wrapW - 8) x = cx - r - 10 - pw;
   x = core.clamp(x, 8, Math.max(8, wrapW - pw - 8));
-  const y = core.clamp(n.y - 30, 8, Math.max(8, wrapH - ph - 8));
+  const y = core.clamp(cy - 30, 8, Math.max(8, wrapH - ph - 8));
   nodePopup.style.left = `${x}px`;
   nodePopup.style.top = `${y}px`;
 }
@@ -775,7 +828,7 @@ function animatePath(pathIndex){
 /** マップを書き換えたあとの共通処理。開始・目標の選択は残し、結果は消す */
 function afterEdit() {
   buildUIOptions(data.nodes, { keepSelection: true });
-  drawGraph(data);
+  drawGraph(data, { fit: false });
   resetResults();
 }
 
@@ -1027,6 +1080,8 @@ function hidePresetNotification() {
 presetNotificationClose.addEventListener('click', hidePresetNotification);
 
 /* ---------- 起動 ---------- */
+
+fitBtn.addEventListener('click', fitView);
 
 // 言語の切り替え（?lang= → 保存した選択 → ブラウザーの言語）
 langToggle.addEventListener('click', () => {
