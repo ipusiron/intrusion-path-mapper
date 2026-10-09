@@ -33,6 +33,9 @@ const kPathsInput = document.getElementById("kPaths");
 const pathsListEl = document.getElementById("pathsList");
 const resultsSummaryEl = document.getElementById("resultsSummary");
 const commonNodesEl = document.getElementById("commonNodes");
+const targetRiskEl = document.getElementById("targetRisk");
+const targetRiskNote = document.getElementById("targetRiskNote");
+const targetRiskList = document.getElementById("targetRiskList");
 const dimOthersInput = document.getElementById("dimOthers");
 const nodeInfoEl  = document.getElementById("nodeInfo");
 const exportBtn   = document.getElementById("exportBtn");
@@ -84,6 +87,9 @@ const edgeDialogCancel = document.getElementById("edgeDialogCancel");
 let currentPaths = []; // 探索の結果（findPaths の戻り値）
 let currentMode = "prob"; // 結果を出したときの並べ方
 let resultsShown = false; // 探索を実行したか（到達できない結果も含む）
+let riskStartId = null; // 目標ごとのリスクを求めた開始ノード
+let riskRows = []; // targetRisks の戻り値
+const RISK_ROWS_SHOWN = 10;
 let selectedPathIndex = 0; // 現在選択されている経路のインデックス
 let selectedNode = null; // 現在選択されているノード
 let editMode = null; // 'add' or 'edit'
@@ -167,6 +173,7 @@ function setLocale(next) {
   if (resultsShown) {
     stopAnimation();
     renderKPathsResult();
+    renderTargetRisks();
   } else {
     pathsListEl.replaceChildren(emptyState());
   }
@@ -600,8 +607,54 @@ analyzeBtn.addEventListener("click", ()=>{
   selectedPathIndex = 0;
   stopAnimation();
   renderKPathsResult();
+
+  // 同じ開始ノードから、各ノードを目標にしたときのリスク（並べ方によらず成功確率で求める）
+  riskStartId = sId;
+  riskRows = core.targetRisks(data, sId);
+  renderTargetRisks();
   revealResults();
 });
+
+/** 目標ごとのリスクの一覧（上位10件）。行ごとに「成功確率×重要度＝リスク」を示す */
+function renderTargetRisks() {
+  targetRiskEl.hidden = riskStartId === null;
+  targetRiskList.replaceChildren();
+  if (riskStartId === null) return;
+  const start = nodeById(riskStartId);
+  if (!riskRows.length) {
+    targetRiskNote.textContent = t("risk.none");
+    return;
+  }
+  const shown = riskRows.slice(0, RISK_ROWS_SHOWN);
+  targetRiskNote.textContent = t("risk.note", { start: labelOf(start), count: riskRows.length, shown: shown.length });
+  shown.forEach((row, i) => {
+    const node = nodeById(row.id);
+    const li = document.createElement("li");
+    li.className = "target-risk-item" + (row.id === goalSelect.value ? " is-current" : "");
+    const head = document.createElement("div");
+    head.className = "target-risk-head";
+    const name = document.createElement("span");
+    name.className = "target-risk-name";
+    name.textContent = `#${i + 1} ${labelOf(node)}` + (row.id === goalSelect.value ? t("risk.current") : "");
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "small-btn";
+    btn.textContent = t("risk.search");
+    btn.setAttribute("aria-label", t("risk.searchAria", { label: labelOf(node) }));
+    btn.addEventListener("click", () => {
+      goalSelect.value = row.id;
+      analyzeBtn.click();
+    });
+    head.append(name, btn);
+    const formula = document.createElement("div");
+    formula.className = "target-risk-formula";
+    formula.textContent = t("risk.formula", {
+      p: core.formatPercent(row.successProb), imp: String(row.importance), r: core.formatScore(row.risk), hops: row.hops
+    });
+    li.append(head, formula);
+    targetRiskList.append(li);
+  });
+}
 
 /** 広い画面（サイドバーだけがスクロールする）では、結果が隠れていればサイドバーを送る */
 function revealResults() {
@@ -694,6 +747,9 @@ function resetResults() {
   pathsListEl.replaceChildren(emptyState());
   resultsSummaryEl.textContent = "";
   commonNodesEl.textContent = "";
+  riskStartId = null;
+  riskRows = [];
+  renderTargetRisks();
   clearHighlight();
   markCommonNodes();
 }

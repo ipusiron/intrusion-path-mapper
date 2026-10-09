@@ -340,8 +340,9 @@ test("目標ごとのリスクは、各ノードへの成功確率の最大値�
 test("目標ごとのリスク（物理的侵入経路、屋外から）の上位3件", () => {
   const g = core.normalizeGraph(loadSample("sample-physical-intrusion.json")).graph;
   const top = core.targetRisks(g, "outside").slice(0, 3).map(r => [r.id, core.formatPercent(r.successProb), core.formatScore(r.risk)]);
-  // 手計算: 2F窓 0.70×0.5、1F窓 0.60×0.4、一般社員 0.6×0.95×0.7＝0.399 に ×0.6
-  assert.deepEqual(top, [["window_2f", "70.0%", "0.350"], ["window_1f", "60.0%", "0.240"], ["employee", "39.9%", "0.239"]]);
+  // 手計算: 一般社員 0.6×0.95×0.7＝0.399 に ×0.6、清掃員 0.7×0.95×0.6＝0.399 に ×0.3、2F窓 0.70×0.1
+  // 通り道（窓・扉）の重要度は0.10なので、最も重要なサーバールーム（2.66%×0.95）より人のほうが上に来る
+  assert.deepEqual(top, [["employee", "39.9%", "0.239"], ["janitor", "39.9%", "0.120"], ["window_2f", "70.0%", "0.0700"]]);
 });
 
 test("エッジの追加・変更・削除（元の配列は変えない）", () => {
