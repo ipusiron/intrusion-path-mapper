@@ -53,10 +53,10 @@ export const MESSAGES = {
     "dialog.edgeTitle": "エッジ追加",
     "dialog.add": "追加",
 
-    "footer.lead": "🔗 GitHubリポジトリー",
+    "footer.lead": "🔗 GitHubリポジトリ",
 
     "notify.loaded": "読み込み完了",
-    "notify.detail": "ノード: {nodes}個、エッジ: {edges}個",
+    "notify.detail": "ノード：{nodes}個、エッジ：{edges}個",
     "notify.close": "通知を閉じる",
 
     "results.emptyTitle": "経路を探索していません",
