@@ -16,7 +16,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### Modules
 | File | Role |
 |------|------|
-| `js/ipm-core.js` | Pure logic, no DOM: validation/normalization (`normalizeGraph`, `parseGraphText`), export (`serializeGraph`, `exportFileName`), adjacency (`buildAdjacency`), binary-heap `dijkstra`, Yen's `kShortestPaths`, `findPaths`, `pathMetrics`, `commonNodes` (nodes on all paths shown), `targetRisks` (one Dijkstra on `−ln(vuln)` for every node, sorted by risk), edge editing (`edgesOf`, `addEdge` with `bidirectional`, `updateEdgeWeight`, `removeEdge`; they return new arrays), formatting (`formatPercent`, `formatScore`, `formatCost`), `defaultEndpoints`, `resolveLocale` |
+| `js/ipm-core.js` | Pure logic, no DOM: validation/normalization (`normalizeGraph`, `parseGraphText`), export (`serializeGraph`, `exportFileName`), adjacency (`buildAdjacency`), binary-heap `dijkstra`, Yen's `kShortestPaths`, `findPaths`, `pathMetrics`, `commonNodes` (nodes on all paths shown), `targetRisks` (one Dijkstra on `−ln(vuln)` for every node, sorted by risk), `blockImpact` (top success probability after blocking each node of the top path), `minVertexCut` (node-split max flow, Menger), edge editing (`edgesOf`, `addEdge` with `bidirectional`, `updateEdgeWeight`, `removeEdge`; they return new arrays), formatting (`formatPercent`, `formatScore`, `formatCost`), `defaultEndpoints`, `resolveLocale` |
 | `js/ipm-messages.js` | UI strings `MESSAGES.ja` / `MESSAGES.en` (same keys). Static HTML uses `data-i18n`, `data-i18n-aria`, `data-i18n-title` |
 | `js/main.js` | DOM and D3 only: drawing, zoom/fit, results list, animation, editing dialogs, import/export, language switch |
 
@@ -43,6 +43,7 @@ JSON → parseGraphText()/normalizeGraph() → data (ids as strings)
 - Switching the language re-renders from the stored results; it never recalculates.
 - `importance` means the damage if the node is taken over; passages (doors, windows) should be low, or they dominate the risk-by-target list.
 - Edges are clickable through transparent wide `.link-hit` lines; keyboard users edit edges from the lists in the node details.
+- The what-if slider changes `node.vuln` in place and calls `rerunSearch()` with `lastSearch`; `whatifOriginals` keeps the values for "Reset to" and is cleared on edits and on a new map.
 
 ## Development Commands
 
@@ -52,7 +53,7 @@ python -m http.server 8000        # then open http://localhost:8000/ (file:// do
 ```
 
 ## Tests (`test/`)
-- `core.test.js`: validation, round trips, Yen vs brute-force enumeration of all simple paths (both orders), target risks vs brute force, common nodes, edge editing, metrics, formatting
+- `core.test.js`: validation, round trips, Yen vs brute-force enumeration of all simple paths (both orders), target risks vs brute force, common nodes, block impact vs brute force, minimality of the vertex cut, edge editing, metrics, formatting
 - `html.test.js`: CSP (`'self'` only), no inline handlers or style attributes, ids, `<dialog>`, D3 SHA-256 and license, legend colors
 - `contrast.test.js`: WCAG contrast of the CSS variables (4.5:1)
 - `i18n.test.js`: ja/en keys and placeholders, no Japanese in English strings, no Japanese literals in `main.js`, sample `label_en`
