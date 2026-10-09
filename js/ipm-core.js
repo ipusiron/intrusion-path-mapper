@@ -489,7 +489,9 @@ export function targetRisks(graph, startId) {
     const path = [];
     for (let v = i; v !== -1; v = prev[v]) path.push(v);
     path.reverse();
-    const { successProb } = pathMetrics(nodes, edges, path);
+    // コストは使わないので、成功確率（開始ノードを除く vuln の積）だけを計算する
+    let successProb = 1;
+    for (let j = 1; j < path.length; j++) successProb *= nodes[path[j]].vuln;
     out.push({ id: n.id, path, successProb, importance: n.importance, risk: successProb * n.importance, hops: path.length - 1 });
   });
   return out.sort((a, b) => b.risk - a.risk || b.successProb - a.successProb || (a.id < b.id ? -1 : 1));
