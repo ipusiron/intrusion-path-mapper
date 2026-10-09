@@ -1,7 +1,7 @@
 {
   "meta": { "title": "Office Network", "author": "ipusiron", "created_at": "2025-10-01" },
   "nodes": [
-    { "id": "internet",     "type": "gateway", "label": "インターネット",   "vuln": 0.40, "importance": 0.10 },
+    { "id": "internet",     "type": "gateway", "label": "インターネット",   "vuln": 1.00, "importance": 0.10 },
     { "id": "firewall",     "type": "gateway", "label": "ファイアウォール", "vuln": 0.25, "importance": 0.60 },
     { "id": "router",       "type": "gateway", "label": "ルーター",         "vuln": 0.35, "importance": 0.50 },
     { "id": "wireless_ap",  "type": "gateway", "label": "無線AP",           "vuln": 0.70, "importance": 0.40 },

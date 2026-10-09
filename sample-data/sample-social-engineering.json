@@ -1,7 +1,7 @@
 {
   "meta": { "title": "Social Engineering Attack", "author": "ipusiron", "created_at": "2025-10-01" },
   "nodes": [
-    { "id": "attacker",        "type": "person",  "label": "攻撃者",           "vuln": 0.90, "importance": 0.05 },
+    { "id": "attacker",        "type": "person",  "label": "攻撃者",           "vuln": 1.00, "importance": 0.05 },
     { "id": "contractor",      "type": "person",  "label": "契約社員",         "vuln": 0.80, "importance": 0.50 },
     { "id": "employee",        "type": "person",  "label": "一般社員",         "vuln": 0.70, "importance": 0.60 },
     { "id": "admin_staff",     "type": "person",  "label": "管理者",           "vuln": 0.50, "importance": 0.90 },

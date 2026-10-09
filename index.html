@@ -14,6 +14,7 @@
   <link rel="stylesheet" href="./css/style.css" />
   <!-- D3.js v7 CDN -->
   <script src="https://d3js.org/d3.v7.min.js"></script>
+  <script type="module" src="./js/main.js"></script>
 </head>
 <body>
   <header class="app-header">
@@ -21,14 +22,16 @@
     <div class="actions">
       <label class="file-btn">
         📁 マップをインポート
-        <input type="file" id="fileInput" accept="application/json" />
+        <input type="file" id="fileInput" accept="application/json,.json" />
       </label>
-      <button id="exportBtn">💾 マップをエクスポート</button>
+      <button id="exportBtn" type="button">💾 マップをエクスポート</button>
     </div>
   </header>
 
   <main class="layout">
     <aside class="sidebar">
+      <div id="statusMsg" class="status-msg" role="status" aria-live="polite" hidden></div>
+
       <section class="panel">
         <h2>プリセット選択</h2>
         <div class="field">
@@ -41,7 +44,7 @@
             <option value="sample-social-engineering">ソーシャルエンジニアリング</option>
           </select>
         </div>
-        <button id="loadPresetBtn" class="preset-load-btn">プリセット読込</button>
+        <button id="loadPresetBtn" type="button" class="preset-load-btn">プリセット読込</button>
       </section>
 
       <section class="panel">
@@ -55,41 +58,43 @@
           <select id="goalSelect"></select>
         </div>
         <div class="field">
-          <label for="nodePenalty">ノード難易度の重み (0〜2)</label>
-          <input id="nodePenalty" type="number" value="0.4" min="0" max="2" step="0.1" />
+          <label for="rankMode">並べ方</label>
+          <select id="rankMode">
+            <option value="prob" selected>成功確率の高い順</option>
+            <option value="cost">コストの低い順</option>
+          </select>
         </div>
         <div class="field">
-          <label for="kPaths">K最短経路の数 (1〜10)</label>
-          <input id="kPaths" type="number" value="3" min="1" max="10" step="1" />
+          <label for="kPaths">経路の数 K (1〜10)</label>
+          <input id="kPaths" type="number" value="3" min="1" max="10" step="1" inputmode="numeric" />
         </div>
-        <button id="analyzeBtn" class="primary-action-btn">K最短経路を探索</button>
+        <div class="field">
+          <label for="nodePenalty">ノード難易度の重み (0〜2、コスト順のみ)</label>
+          <input id="nodePenalty" type="number" value="0.4" min="0" max="2" step="0.1" inputmode="decimal" />
+        </div>
+        <button id="analyzeBtn" type="button" class="primary-action-btn">経路を探索</button>
 
         <div id="results" class="results">
           <h3>結果</h3>
-          <div id="pathsList" class="paths-list">
-            <div class="empty-state">
-              <div class="empty-icon">🔍</div>
-              <div class="empty-text">経路を探索していません</div>
-              <div class="empty-hint">上記の設定を行い、「K最短経路を探索」ボタンを押してください</div>
-            </div>
-          </div>
+          <p id="resultsSummary" class="results-summary" aria-live="polite"></p>
+          <div id="pathsList" class="paths-list"></div>
         </div>
       </section>
 
       <section class="panel">
         <h2>編集</h2>
         <div class="edit-controls">
-          <button id="addNodeBtn" class="edit-btn">+ ノード追加</button>
-          <button id="addEdgeBtn" class="edit-btn">+ エッジ追加</button>
+          <button id="addNodeBtn" type="button" class="edit-btn">+ ノード追加</button>
+          <button id="addEdgeBtn" type="button" class="edit-btn">+ エッジ追加</button>
         </div>
       </section>
 
       <section class="panel">
         <div class="panel-header">
           <h2>ノード情報</h2>
-          <div id="nodeEditPanel" class="node-edit-panel-inline" style="display: none;">
-            <button id="editNodeBtn" class="icon-btn" title="編集">✏️</button>
-            <button id="deleteNodeBtn" class="icon-btn danger" title="削除">🗑️</button>
+          <div id="nodeEditPanel" class="node-edit-panel-inline" hidden>
+            <button id="editNodeBtn" type="button" class="icon-btn" title="ノードを編集" aria-label="ノードを編集">✏️</button>
+            <button id="deleteNodeBtn" type="button" class="icon-btn danger" title="ノードを削除" aria-label="ノードを削除">🗑️</button>
           </div>
         </div>
         <div id="nodeInfo" class="node-info">（ノードをクリック）</div>
@@ -98,16 +103,17 @@
       <section class="panel">
         <h2>ヒント</h2>
         <ul class="tips">
-          <li>ノードをドラッグしてレイアウト調整できます</li>
-          <li>エッジの <code>weight</code> は移動コストです（小さいほど易）</li>
-          <li>ノードの <code>vuln</code> は脆弱度（大きいほど攻撃成功しやすい）</li>
+          <li>ノードをドラッグしてレイアウト調整できます。Tab キーでノードを選び、Enter で情報を出せます</li>
+          <li>ノードの <code>vuln</code> は、手前のノードにいる攻撃者がそのノードを突破できる確率です</li>
+          <li>成功確率は、開始ノードを除く経路上のノードの <code>vuln</code> の積です</li>
+          <li>エッジの <code>weight</code> は移動コストです（小さいほど容易）。コスト順で使います</li>
         </ul>
       </section>
     </aside>
 
     <section class="canvas-wrap">
-      <svg id="graph" width="100%" height="100%"></svg>
-      <div id="nodePopup" class="node-popup" style="display: none;"></div>
+      <svg id="graph" width="100%" height="100%" role="img" aria-label="侵入経路のマップ"></svg>
+      <div id="nodePopup" class="node-popup" hidden></div>
 
       <!-- グラフ凡例 -->
       <div class="graph-legend">
@@ -121,99 +127,99 @@
         </div>
       </div>
 
-      <!-- ノード編集ダイアログ -->
-      <div id="nodeDialog" class="dialog" style="display: none;">
-        <div class="dialog-content">
-          <h3 id="nodeDialogTitle">ノード編集</h3>
-          <div class="form-field">
-            <label>ID:</label>
-            <input type="text" id="nodeDialogId" />
-          </div>
-          <div class="form-field">
-            <label>Label:</label>
-            <input type="text" id="nodeDialogLabel" />
-          </div>
-          <div class="form-field">
-            <label>Type:</label>
-            <select id="nodeDialogType">
-              <option value="gateway">gateway</option>
-              <option value="device">device</option>
-              <option value="server">server</option>
-              <option value="account">account</option>
-              <option value="room">room</option>
-              <option value="person">person</option>
-              <option value="node">node</option>
-            </select>
-          </div>
-          <div class="form-field">
-            <label>Vulnerability (0-1):</label>
-            <input type="number" id="nodeDialogVuln" min="0" max="1" step="0.1" />
-          </div>
-          <div class="form-field">
-            <label>Importance (0-1):</label>
-            <input type="number" id="nodeDialogImportance" min="0" max="1" step="0.1" />
-          </div>
-          <div class="form-field">
-            <label>Color (カスタム色):</label>
-            <div class="color-picker-row">
-              <input type="color" id="nodeDialogColor" />
-              <button type="button" id="nodeDialogColorReset" class="color-reset-btn">リセット</button>
-            </div>
-            <small class="field-hint">空白の場合はタイプに応じた自動色</small>
-          </div>
-          <div class="dialog-buttons">
-            <button id="nodeDialogSave" class="dialog-btn primary">保存</button>
-            <button id="nodeDialogCancel" class="dialog-btn">キャンセル</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- エッジ追加ダイアログ -->
-      <div id="edgeDialog" class="dialog" style="display: none;">
-        <div class="dialog-content">
-          <h3>エッジ追加</h3>
-          <div class="form-field">
-            <label>From (Source):</label>
-            <select id="edgeDialogSource"></select>
-          </div>
-          <div class="form-field">
-            <label>To (Target):</label>
-            <select id="edgeDialogTarget"></select>
-          </div>
-          <div class="form-field">
-            <label>Weight:</label>
-            <input type="number" id="edgeDialogWeight" min="0" step="0.1" value="1.0" />
-          </div>
-          <div class="dialog-buttons">
-            <button id="edgeDialogSave" class="dialog-btn primary">追加</button>
-            <button id="edgeDialogCancel" class="dialog-btn">キャンセル</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- プリセット読込成功通知 -->
-      <div id="presetNotification" class="notification" style="display: none;">
+      <!-- 読み込みの通知 -->
+      <div id="presetNotification" class="notification" hidden>
         <div class="notification-content">
-          <div class="notification-icon">✓</div>
+          <div class="notification-icon" aria-hidden="true">✓</div>
           <div class="notification-message">
-            <div class="notification-title" id="presetNotificationTitle">プリセット読込完了</div>
+            <div class="notification-title" id="presetNotificationTitle">読み込み完了</div>
             <div class="notification-detail" id="presetNotificationDetail"></div>
           </div>
-          <button id="presetNotificationClose" class="notification-close">×</button>
+          <button id="presetNotificationClose" type="button" class="notification-close" aria-label="通知を閉じる">×</button>
         </div>
       </div>
     </section>
   </main>
 
+  <!-- ノード編集ダイアログ -->
+  <dialog id="nodeDialog" class="dialog" aria-labelledby="nodeDialogTitle">
+    <div class="dialog-content">
+      <h3 id="nodeDialogTitle">ノード編集</h3>
+      <p id="nodeDialogError" class="dialog-error" role="alert" hidden></p>
+      <div class="form-field">
+        <label for="nodeDialogId">ID:</label>
+        <input type="text" id="nodeDialogId" maxlength="100" autocomplete="off" spellcheck="false" />
+      </div>
+      <div class="form-field">
+        <label for="nodeDialogLabel">Label:</label>
+        <input type="text" id="nodeDialogLabel" maxlength="200" autocomplete="off" />
+      </div>
+      <div class="form-field">
+        <label for="nodeDialogType">Type:</label>
+        <select id="nodeDialogType">
+          <option value="gateway">gateway</option>
+          <option value="device">device</option>
+          <option value="server">server</option>
+          <option value="account">account</option>
+          <option value="room">room</option>
+          <option value="person">person</option>
+          <option value="node">node</option>
+        </select>
+      </div>
+      <div class="form-field">
+        <label for="nodeDialogVuln">Vulnerability (0-1):</label>
+        <input type="number" id="nodeDialogVuln" min="0" max="1" step="0.05" inputmode="decimal" />
+      </div>
+      <div class="form-field">
+        <label for="nodeDialogImportance">Importance (0-1):</label>
+        <input type="number" id="nodeDialogImportance" min="0" max="1" step="0.05" inputmode="decimal" />
+      </div>
+      <div class="form-field">
+        <label for="nodeDialogColor">Color (カスタム色):</label>
+        <div class="color-picker-row">
+          <input type="color" id="nodeDialogColor" />
+          <label class="check-label"><input type="checkbox" id="nodeDialogColorAuto" /> 種類に応じた自動の色</label>
+          <button type="button" id="nodeDialogColorReset" class="color-reset-btn">リセット</button>
+        </div>
+      </div>
+      <div class="dialog-buttons">
+        <button id="nodeDialogSave" type="button" class="dialog-btn primary">保存</button>
+        <button id="nodeDialogCancel" type="button" class="dialog-btn">キャンセル</button>
+      </div>
+    </div>
+  </dialog>
+
+  <!-- エッジ追加ダイアログ -->
+  <dialog id="edgeDialog" class="dialog" aria-labelledby="edgeDialogTitle">
+    <div class="dialog-content">
+      <h3 id="edgeDialogTitle">エッジ追加</h3>
+      <p id="edgeDialogError" class="dialog-error" role="alert" hidden></p>
+      <div class="form-field">
+        <label for="edgeDialogSource">From (Source):</label>
+        <select id="edgeDialogSource"></select>
+      </div>
+      <div class="form-field">
+        <label for="edgeDialogTarget">To (Target):</label>
+        <select id="edgeDialogTarget"></select>
+      </div>
+      <div class="form-field">
+        <label for="edgeDialogWeight">Weight:</label>
+        <input type="number" id="edgeDialogWeight" min="0" step="0.1" value="1.0" inputmode="decimal" />
+      </div>
+      <div class="dialog-buttons">
+        <button id="edgeDialogSave" type="button" class="dialog-btn primary">追加</button>
+        <button id="edgeDialogCancel" type="button" class="dialog-btn">キャンセル</button>
+      </div>
+    </div>
+  </dialog>
+
   <footer>
     <div class="footer">
       🔗 GitHubリポジトリはこちら（
-      <a href="https://github.com/ipusiron/intrusion-path-mapper" target="_blank">
+      <a href="https://github.com/ipusiron/intrusion-path-mapper" target="_blank" rel="noopener noreferrer">
         ipusiron/intrusion-path-mapper
       </a> ）
     </div>
   </footer>
-
-  <script src="./js/main.js"></script>
 </body>
 </html>

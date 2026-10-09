@@ -1,32 +1,40 @@
-/* Day083 - AI Attack Path Finder (MVP)
-   - D3.js force layout
-   - Dijkstra shortest path
-   - JSON import/export
-   - Path highlight + simple scoring
+/* Day083 - Intrusion Path Mapper（画面の処理）
+   - D3.js の force レイアウトでマップを描く（D3 は vendor/ に自己ホスト）
+   - 計算（検証・正規化・Yen の K 最短経路・指標）は ipm-core.js、文言は ipm-messages.js
+   - 成功確率の高い順／コストの低い順で経路を並べ、ハイライトとアニメーションで見せる
+   - マップの編集、JSON のインポート／エクスポート
 */
 
+import * as core from "./ipm-core.js";
+import { MESSAGES } from "./ipm-messages.js";
+
 const svg = d3.select("#graph");
+const canvasWrap = document.querySelector(".canvas-wrap");
 const width = () => svg.node().clientWidth;
 const height = () => svg.node().clientHeight;
 
-let data = null;            // {meta, nodes:[{id,label,type,vuln,importance}], edges:[{source,target,weight}]}
+let data = null;            // {meta, nodes:[{id,label,label_en?,type,vuln,importance,color?}], edges:[{source,target,weight}], attack_goals}
 let sim = null;
 let linkSel = null;
 let nodeSel = null;
+let locale = "ja";
 
 // UI elements
 const presetSelect = document.getElementById("presetSelect");
 const loadPresetBtn = document.getElementById("loadPresetBtn");
 const startSelect = document.getElementById("startSelect");
 const goalSelect  = document.getElementById("goalSelect");
+const rankModeSelect = document.getElementById("rankMode");
 const analyzeBtn  = document.getElementById("analyzeBtn");
 const nodePenaltyInput = document.getElementById("nodePenalty");
 const kPathsInput = document.getElementById("kPaths");
 const pathsListEl = document.getElementById("pathsList");
+const resultsSummaryEl = document.getElementById("resultsSummary");
 const nodeInfoEl  = document.getElementById("nodeInfo");
 const exportBtn   = document.getElementById("exportBtn");
 const fileInput   = document.getElementById("fileInput");
 const nodePopup   = document.getElementById("nodePopup");
+const statusMsg   = document.getElementById("statusMsg");
 
 // 通知UI
 const presetNotification = document.getElementById("presetNotification");
@@ -43,120 +51,141 @@ const deleteNodeBtn = document.getElementById("deleteNodeBtn");
 
 const nodeDialog = document.getElementById("nodeDialog");
 const nodeDialogTitle = document.getElementById("nodeDialogTitle");
+const nodeDialogError = document.getElementById("nodeDialogError");
 const nodeDialogId = document.getElementById("nodeDialogId");
 const nodeDialogLabel = document.getElementById("nodeDialogLabel");
 const nodeDialogType = document.getElementById("nodeDialogType");
 const nodeDialogVuln = document.getElementById("nodeDialogVuln");
 const nodeDialogImportance = document.getElementById("nodeDialogImportance");
 const nodeDialogColor = document.getElementById("nodeDialogColor");
+const nodeDialogColorAuto = document.getElementById("nodeDialogColorAuto");
 const nodeDialogColorReset = document.getElementById("nodeDialogColorReset");
 const nodeDialogSave = document.getElementById("nodeDialogSave");
 const nodeDialogCancel = document.getElementById("nodeDialogCancel");
 
 const edgeDialog = document.getElementById("edgeDialog");
+const edgeDialogError = document.getElementById("edgeDialogError");
 const edgeDialogSource = document.getElementById("edgeDialogSource");
 const edgeDialogTarget = document.getElementById("edgeDialogTarget");
 const edgeDialogWeight = document.getElementById("edgeDialogWeight");
 const edgeDialogSave = document.getElementById("edgeDialogSave");
 const edgeDialogCancel = document.getElementById("edgeDialogCancel");
 
-let currentPaths = []; // K最短経路の結果を保存
+let currentPaths = []; // 探索の結果（findPaths の戻り値）
+let currentMode = "prob"; // 結果を出したときの並べ方
 let selectedPathIndex = 0; // 現在選択されている経路のインデックス
 let selectedNode = null; // 現在選択されているノード
 let editMode = null; // 'add' or 'edit'
+let notificationTimer = null;
 
-// Load default sample
-fetch("./sample-data/sample-facility.json")
-  .then(r => r.json())
-  .then(json => {
-    data = normalizeData(json);
-    buildUIOptions(data.nodes);
-    drawGraph(data);
-  })
-  .catch(() => {
-    // Fallback minimal graph if sample missing
-    data = {
-      nodes: [
-        {id:"ext", label:"外部", type:"gateway", vuln:0.3, importance:0.1},
-        {id:"pc1", label:"社員PC", type:"device", vuln:0.6, importance:0.4},
-        {id:"srv1", label:"ファイルサーバー", type:"server", vuln:0.5, importance:0.9}
-      ],
-      edges: [
-        {source:"ext", target:"pc1", weight:1.0},
-        {source:"pc1", target:"srv1", weight:1.2}
-      ],
-      meta:{title:"Fallback"}
-    };
-    buildUIOptions(data.nodes);
-    drawGraph(data);
-  });
+/* ---------- 文言 ---------- */
+
+function t(key, params = {}) {
+  const dict = MESSAGES[locale] || MESSAGES.ja;
+  const s = dict[key] ?? MESSAGES.ja[key] ?? key;
+  return s.replace(/\{(\w+)\}/g, (m, k) => (k in params ? String(params[k]) : m));
+}
+
+function labelOf(n) {
+  return core.nodeLabel(n, locale);
+}
+
+function graphErrorText(err) {
+  if (err instanceof core.GraphError) return t(`graph.${err.code}`, err.params);
+  return String(err && err.message ? err.message : err);
+}
+
+/** サイドバー上部の知らせ（kind: "info" | "error"）。空文字で消す */
+function showStatus(text, kind = "info") {
+  statusMsg.textContent = text;
+  statusMsg.classList.toggle("is-error", kind === "error");
+  statusMsg.hidden = !text;
+}
+
+/* ---------- 読み込み ---------- */
+
+function fallbackGraph() {
+  return core.normalizeGraph({
+    meta: { title: t("fallback.title") },
+    nodes: [
+      { id: "ext", label: MESSAGES.ja["fallback.ext"], label_en: "Outside", type: "gateway", vuln: 1, importance: 0.1 },
+      { id: "pc1", label: MESSAGES.ja["fallback.pc"], label_en: "Employee PC", type: "device", vuln: 0.6, importance: 0.4 },
+      { id: "srv1", label: MESSAGES.ja["fallback.srv"], label_en: "File server", type: "server", vuln: 0.5, importance: 0.9 }
+    ],
+    edges: [
+      { source: "ext", target: "pc1", weight: 1.0 },
+      { source: "pc1", target: "srv1", weight: 1.2 }
+    ],
+    attack_goals: ["srv1"]
+  }).graph;
+}
+
+/** 新しいマップに差し替える。開始・目標は既定に戻し、結果と選択を消す */
+function setGraph(graph) {
+  data = graph;
+  selectedNode = null;
+  buildUIOptions(data.nodes, { keepSelection: false });
+  renderNodeInfo(null);
+  drawGraph(data);
+  resetResults();
+}
+
+async function loadSample(name) {
+  const r = await fetch(`./sample-data/${name}.json`);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return core.normalizeGraph(await r.json()).graph;
+}
 
 /* ---------- Helpers ---------- */
 
-function normalizeData(json) {
-  const nmap = new Map();
-  const nodes = (json.nodes || []).map(n => {
-    const node = {
-      id: String(n.id),
-      label: n.label ?? n.id,
-      type: n.type ?? "node",
-      vuln: clamp(Number(n.vuln ?? 0.5), 0, 1),
-      importance: clamp(Number(n.importance ?? 0.5), 0, 1)
-    };
-    if (n.color) node.color = n.color;
-    nmap.set(node.id, node);
-    return node;
-  });
-
-  const edges = (json.edges || []).map(e => {
-    return {
-      source: String(e.source),
-      target: String(e.target),
-      weight: Number(e.weight ?? 1.0)
-    };
-  }).filter(e => nmap.has(e.source) && nmap.has(e.target));
-
-  return { meta: json.meta || {}, nodes, edges, attack_goals: json.attack_goals || [] };
-}
-
-function clamp(v, min, max){ return Math.max(min, Math.min(max, v)); }
-
-function buildUIOptions(nodes) {
-  startSelect.innerHTML = "";
-  goalSelect.innerHTML  = "";
+function buildUIOptions(nodes, { keepSelection = true } = {}) {
+  const prevStart = startSelect.value;
+  const prevGoal = goalSelect.value;
+  startSelect.replaceChildren();
+  goalSelect.replaceChildren();
+  edgeDialogSource.replaceChildren();
+  edgeDialogTarget.replaceChildren();
 
   nodes.forEach(n => {
-    const o1 = document.createElement("option");
-    o1.value = n.id; o1.textContent = `${n.label} (${n.id})`;
-    startSelect.appendChild(o1);
-
-    const o2 = document.createElement("option");
-    o2.value = n.id; o2.textContent = `${n.label} (${n.id})`;
-    goalSelect.appendChild(o2);
+    for (const sel of [startSelect, goalSelect, edgeDialogSource, edgeDialogTarget]) {
+      const o = document.createElement("option");
+      o.value = n.id;
+      o.textContent = `${labelOf(n)} (${n.id})`;
+      sel.appendChild(o);
+    }
   });
 
-  // 初期選択（外部→重要度最大）
-  const ext = nodes.find(n => /ext|outside|gateway/i.test(n.id));
-  if (ext) startSelect.value = ext.id;
-  const maxImp = [...nodes].sort((a,b)=>b.importance-a.importance)[0];
-  if (maxImp) goalSelect.value = maxImp.id;
+  const ids = new Set(nodes.map(n => n.id));
+  const def = core.defaultEndpoints(data);
+  startSelect.value = keepSelection && ids.has(prevStart) ? prevStart : (def.start ?? "");
+  goalSelect.value = keepSelection && ids.has(prevGoal) ? prevGoal : (def.goal ?? "");
+}
+
+function nodeRadius(d) {
+  return 10 + d.importance * 10;
 }
 
 function drawGraph(graphData) {
+  stopAnimation();
+  if (sim) sim.stop();
   svg.selectAll("*").remove();
+  hidePopup();
 
   const defs = svg.append("defs");
   defs.append("marker")
     .attr("id","arrow")
     .attr("viewBox","0 -5 10 10")
-    .attr("refX",18).attr("refY",0)
+    .attr("refX",10).attr("refY",0)
     .attr("markerWidth",6).attr("markerHeight",6)
     .attr("orient","auto")
     .append("path").attr("d","M0,-5L10,0L0,5").attr("fill","#8aa0b6");
 
+  // D3 は source/target をノードのオブジェクトに置き換えるので、描画用の写しを渡す（data.edges は ID のまま）
+  const links = graphData.edges.map(e => ({ source: e.source, target: e.target, weight: e.weight }));
+
   linkSel = svg.append("g").attr("class","links")
     .selectAll("line")
-    .data(graphData.edges)
+    .data(links)
     .enter()
     .append("line")
     .attr("class","link")
@@ -169,59 +198,65 @@ function drawGraph(graphData) {
     .enter()
     .append("g")
     .attr("class","node")
+    .attr("tabindex", 0)
+    .attr("role", "button")
+    .attr("aria-label", d => `${labelOf(d)} (${d.id})`)
     .call(d3.drag()
       .on("start", dragstarted)
       .on("drag", dragged)
       .on("end", dragended));
 
   nodeG.append("circle")
-    .attr("r", d => 10 + d.importance * 10)
-    .attr("fill", colorByType);
+    .attr("r", nodeRadius)
+    .attr("fill", d => core.nodeColor(d));
 
   nodeG.append("text")
     .attr("dy", 3)
     .attr("x", d => 12 + d.importance * 4)
-    .text(d => d.label);
+    .text(d => labelOf(d));
 
   nodeSel = nodeG;
 
-  nodeG.on("click",(_,d)=>showNodeInfo(d));
+  nodeG.on("click", (event, d) => {
+    event.stopPropagation();
+    showNodeInfo(d);
+  });
+  nodeG.on("keydown", (event, d) => {
+    if (event.key === "Enter" || event.key === " ") {
+      event.preventDefault();
+      showNodeInfo(d);
+    }
+  });
 
   sim = d3.forceSimulation(graphData.nodes)
-    .force("link", d3.forceLink(graphData.edges).id(d=>d.id).distance(e=> 40 + e.weight*30).strength(0.3))
+    .force("link", d3.forceLink(links).id(d=>d.id).distance(e=> 40 + Math.min(e.weight, 10)*30).strength(0.3))
     .force("charge", d3.forceManyBody().strength(-220))
     .force("center", d3.forceCenter(width()/2, height()/2))
     .force("collide", d3.forceCollide().radius(d=> 12 + d.importance*12))
     .on("tick", ticked);
 
   function ticked() {
-    linkSel
-      .attr("x1", d=>d.source.x)
-      .attr("y1", d=>d.source.y)
-      .attr("x2", d=>d.target.x)
-      .attr("y2", d=>d.target.y);
+    // 線の終端を行き先の円の縁で止め、矢印の先端が円に隠れないようにする
+    linkSel.each(function(d){
+      const dx = d.target.x - d.source.x;
+      const dy = d.target.y - d.source.y;
+      const len = Math.hypot(dx, dy) || 1;
+      const r = nodeRadius(d.target) + 2;
+      d3.select(this)
+        .attr("x1", d.source.x)
+        .attr("y1", d.source.y)
+        .attr("x2", d.target.x - dx / len * r)
+        .attr("y2", d.target.y - dy / len * r);
+    });
 
     nodeSel.attr("transform", d=>`translate(${d.x},${d.y})`);
   }
-
-  window.addEventListener("resize", ()=> {
-    sim && sim.force("center", d3.forceCenter(width()/2, height()/2));
-  });
 }
 
-function colorByType(d){
-  // カスタム色が設定されていればそれを使用
-  if (d.color) return d.color;
-
-  // タイプに応じたデフォルト色
-  const t = (d.type||"node").toLowerCase();
-  if (t.includes("server")) return "#7cc7ff";
-  if (t.includes("device")) return "#ffd580";
-  if (t.includes("account")) return "#c3a6ff";
-  if (t.includes("person")) return "#ffb3d9";
-  if (t.includes("gateway") || t.includes("room")) return "#9affc3";
-  return "#9fb3c8";
-}
+// 画面の大きさが変わったら中心を合わせ直す（リスナーは1つだけ）
+window.addEventListener("resize", ()=> {
+  if (sim) sim.force("center", d3.forceCenter(width()/2, height()/2)).alpha(0.3).restart();
+});
 
 function dragstarted(event,d){
   if (!event.active) sim.alphaTarget(0.3).restart();
@@ -235,337 +270,172 @@ function dragended(event,d){
   d.fx = null; d.fy = null;
 }
 
+function kv(title, value) {
+  const row = document.createElement("div");
+  row.className = "kv";
+  const k = document.createElement("div");
+  k.className = "title";
+  k.textContent = title;
+  const v = document.createElement("div");
+  v.textContent = value;
+  row.append(k, v);
+  return row;
+}
+
+function renderNodeInfo(n) {
+  nodeInfoEl.replaceChildren();
+  nodeEditPanel.hidden = !n;
+  if (!n) {
+    nodeInfoEl.textContent = t("info.empty");
+    return;
+  }
+  nodeInfoEl.append(
+    kv(t("info.id"), n.id),
+    kv(t("info.label"), n.label)
+  );
+  if (n.label_en) nodeInfoEl.append(kv(t("info.labelEn"), n.label_en));
+  nodeInfoEl.append(
+    kv(t("info.type"), n.type || "-"),
+    kv(t("info.vuln"), String(n.vuln)),
+    kv(t("info.importance"), String(n.importance))
+  );
+
+  const actions = document.createElement("div");
+  actions.className = "node-info-actions";
+  const toStart = document.createElement("button");
+  toStart.type = "button";
+  toStart.className = "small-btn";
+  toStart.textContent = t("info.setStart");
+  toStart.addEventListener("click", () => { startSelect.value = n.id; });
+  const toGoal = document.createElement("button");
+  toGoal.type = "button";
+  toGoal.className = "small-btn";
+  toGoal.textContent = t("info.setGoal");
+  toGoal.addEventListener("click", () => { goalSelect.value = n.id; });
+  actions.append(toStart, toGoal);
+  nodeInfoEl.append(actions);
+}
+
+function popupRow(label, value) {
+  const row = document.createElement("div");
+  row.className = "popup-row";
+  const l = document.createElement("span");
+  l.className = "popup-label";
+  l.textContent = `${label}:`;
+  const v = document.createElement("span");
+  v.textContent = value;
+  row.append(l, " ", v);
+  return row;
+}
+
 function showNodeInfo(n){
   selectedNode = n;
 
   // サイドバーにも表示
-  nodeInfoEl.innerHTML = `
-    <div class="kv"><div class="title">ID</div><div>${n.id}</div></div>
-    <div class="kv"><div class="title">Label</div><div>${n.label}</div></div>
-    <div class="kv"><div class="title">Type</div><div>${n.type||"-"}</div></div>
-    <div class="kv"><div class="title">vuln</div><div>${n.vuln}</div></div>
-    <div class="kv"><div class="title">importance</div><div>${n.importance}</div></div>
-  `;
+  renderNodeInfo(n);
 
-  // 編集パネルを表示
-  nodeEditPanel.style.display = 'flex';
+  // ポップアップを表示（中身は textContent で組み立てる）
+  const header = document.createElement("div");
+  header.className = "popup-header";
+  header.textContent = labelOf(n);
+  nodePopup.replaceChildren(
+    header,
+    popupRow(t("info.id"), n.id),
+    popupRow(t("info.type"), n.type || "-"),
+    popupRow(t("info.vuln"), String(n.vuln)),
+    popupRow(t("info.importance"), String(n.importance))
+  );
+  nodePopup.hidden = false;
 
-  // ポップアップを表示
-  nodePopup.innerHTML = `
-    <div class="popup-header">${n.label}</div>
-    <div class="popup-row"><span class="popup-label">ID:</span> <span>${n.id}</span></div>
-    <div class="popup-row"><span class="popup-label">Type:</span> <span>${n.type||"-"}</span></div>
-    <div class="popup-row"><span class="popup-label">Vuln:</span> <span>${n.vuln}</span></div>
-    <div class="popup-row"><span class="popup-label">Importance:</span> <span>${n.importance}</span></div>
-  `;
+  // ノードの右側に置き、キャンバスの外へはみ出さないように寄せる
+  const wrapW = canvasWrap.clientWidth;
+  const wrapH = canvasWrap.clientHeight;
+  const pw = nodePopup.offsetWidth;
+  const ph = nodePopup.offsetHeight;
+  let x = n.x + nodeRadius(n) + 10;
+  if (x + pw > wrapW - 8) x = n.x - nodeRadius(n) - 10 - pw;
+  x = core.clamp(x, 8, Math.max(8, wrapW - pw - 8));
+  const y = core.clamp(n.y - 30, 8, Math.max(8, wrapH - ph - 8));
+  nodePopup.style.left = `${x}px`;
+  nodePopup.style.top = `${y}px`;
+}
 
-  // ノードの座標を取得してポップアップを配置
-  const svgRect = svg.node().getBoundingClientRect();
-  const nodeRadius = 10 + n.importance * 10;
-  const popupX = n.x + nodeRadius + 10; // ノードの右側に配置
-  const popupY = n.y - 30; // ノードより少し上
-
-  nodePopup.style.left = `${popupX}px`;
-  nodePopup.style.top = `${popupY}px`;
-  nodePopup.style.display = 'block';
+function hidePopup() {
+  nodePopup.hidden = true;
 }
 
 // ポップアップを閉じる処理
 svg.on("click", function(event) {
-  if (event.target.tagName === 'svg') {
-    nodePopup.style.display = 'none';
-  }
+  if (event.target === svg.node()) hidePopup();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && !nodePopup.hidden) hidePopup();
 });
 
-/* ---------- Dijkstra ---------- */
+/* ---------- 探索 ---------- */
 
-// グラフを隣接リストへ
-function buildAdjacency(nodes, edges, nodePenalty){
-  const idx = new Map(nodes.map((n,i)=>[n.id,i]));
-  const adj = new Array(nodes.length).fill(0).map(()=>[]);
-  edges.forEach(e=>{
-    // D3.jsがsource/targetをオブジェクトに変換するため、IDを取得
-    const sourceId = typeof e.source === 'object' ? e.source.id : e.source;
-    const targetId = typeof e.target === 'object' ? e.target.id : e.target;
-
-    const si = idx.get(sourceId), ti = idx.get(targetId);
-    if (si==null || ti==null) return;
-    const nCost = nodePenalty * (1 - nodes[ti].vuln); // 目標側ノード難易度を微加算
-    const w = Number(e.weight ?? 1) + nCost;
-    adj[si].push({to:ti, w, eid:`${sourceId}→${targetId}`});
-    // 無向扱いにしたい場合はこちらも追加
-    // const nCost2 = nodePenalty * (1 - nodes[si].vuln);
-    // adj[ti].push({to:si, w:Number(e.weight ?? 1)+nCost2, eid:`${targetId}→${sourceId}`});
-  });
-  return {adj, idx};
+function updateModeFields() {
+  // ノード難易度の重みはコスト順でだけ使う
+  nodePenaltyInput.disabled = rankModeSelect.value !== "cost";
 }
-
-function dijkstra(nodes, adj, startIdx, goalIdx, excludedEdges = new Set()){
-  const N = nodes.length;
-  const dist = new Array(N).fill(Infinity);
-  const prev = new Array(N).fill(-1);
-  dist[startIdx] = 0;
-
-  const visited = new Array(N).fill(false);
-
-  for (let t=0;t<N;t++){
-    let u = -1, best = Infinity;
-    for (let i=0;i<N;i++){
-      if (!visited[i] && dist[i] < best){ best = dist[i]; u=i; }
-    }
-    if (u === -1) break;
-    if (u === goalIdx) break;
-    visited[u] = true;
-
-    for (const {to, w} of adj[u]){
-      const edgeKey = `${u}-${to}`;
-      if (excludedEdges.has(edgeKey)) continue; // 除外エッジをスキップ
-
-      const nd = dist[u] + w;
-      if (nd < dist[to]){
-        dist[to] = nd;
-        prev[to] = u;
-      }
-    }
-  }
-
-  if (dist[goalIdx] === Infinity) return {cost:Infinity, path:[]};
-
-  const pathIdx = [];
-  for (let v=goalIdx; v!==-1; v=prev[v]) pathIdx.push(v);
-  pathIdx.reverse();
-  return {cost: dist[goalIdx], path: pathIdx};
-}
-
-// Yen's K-shortest paths algorithm
-function yenKShortestPaths(nodes, adj, startIdx, goalIdx, K){
-  const A = []; // K本の最短経路を格納
-  const B = []; // 候補経路を格納
-
-  // 最初の最短経路を計算
-  const firstPath = dijkstra(nodes, adj, startIdx, goalIdx);
-  if (firstPath.cost === Infinity) return A;
-  A.push(firstPath);
-
-  for (let k=1; k<K; k++){
-    const prevPath = A[k-1];
-
-    // 前回の経路の各ノードをスパーノードとして試す
-    for (let i=0; i<prevPath.path.length-1; i++){
-      const spurNode = prevPath.path[i];
-      const rootPath = prevPath.path.slice(0, i+1);
-
-      const excludedEdges = new Set();
-
-      // 同じルートパスを持つ既存の経路からエッジを除外
-      for (const p of A){
-        if (p.path.length > i && arraysEqual(p.path.slice(0, i+1), rootPath)){
-          if (p.path.length > i+1){
-            const edgeKey = `${p.path[i]}-${p.path[i+1]}`;
-            excludedEdges.add(edgeKey);
-          }
-        }
-      }
-
-      // ルートパス内のノードを除外（spurNode以外）
-      const excludedNodes = new Set(rootPath.slice(0, -1));
-
-      // 修正版隣接リストを作成（除外ノードからのエッジを削除）
-      const modifiedAdj = adj.map((neighbors, idx) => {
-        if (excludedNodes.has(idx)) return [];
-        return neighbors.filter(({to}) => !excludedNodes.has(to));
-      });
-
-      // spurNodeからgoalまでの最短経路を計算
-      const spurPath = dijkstra(nodes, modifiedAdj, spurNode, goalIdx, excludedEdges);
-
-      if (spurPath.cost !== Infinity){
-        // rootPathとspurPathを結合
-        const totalPath = [...rootPath.slice(0, -1), ...spurPath.path];
-
-        // コストを計算
-        let totalCost = 0;
-        for (let j=0; j<totalPath.length-1; j++){
-          const from = totalPath[j];
-          const to = totalPath[j+1];
-          const edge = adj[from].find(e => e.to === to);
-          if (edge) totalCost += edge.w;
-        }
-
-        const newPath = {cost: totalCost, path: totalPath};
-
-        // 重複チェック
-        if (!B.some(p => arraysEqual(p.path, newPath.path))){
-          B.push(newPath);
-        }
-      }
-    }
-
-    if (B.length === 0) break;
-
-    // Bの中から最小コストの経路を選択
-    B.sort((a, b) => a.cost - b.cost);
-    A.push(B.shift());
-  }
-
-  return A;
-}
-
-function arraysEqual(a, b){
-  if (a.length !== b.length) return false;
-  for (let i=0; i<a.length; i++){
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
-
-// 経路の成功確率とリスク指標を計算
-function calculatePathMetrics(pathResult, nodes){
-  if (!pathResult || !pathResult.path || pathResult.path.length === 0){
-    return {successProb: 0, riskIndex: 0, avgVuln: 0, maxImportance: 0};
-  }
-
-  // 経路上の各ノードの脆弱性を取得
-  const pathNodes = pathResult.path.map(idx => nodes[idx]);
-
-  // デバッグ情報
-  console.log('=== Path Metrics Calculation ===');
-  console.log('Path indices:', pathResult.path);
-  console.log('Path nodes:', pathNodes.map(n => ({id: n.id, vuln: n.vuln, importance: n.importance})));
-
-  // 成功確率 = 各ノードの脆弱性の積（各ステップで成功する確率）
-  let successProb = 1.0;
-  for (const node of pathNodes){
-    // vuln が高いほど攻撃が成功しやすい
-    console.log(`Multiplying successProb ${successProb} by vuln ${node.vuln} (node: ${node.id})`);
-    successProb *= node.vuln;
-  }
-  console.log('Final successProb:', successProb);
-
-  // 平均脆弱性
-  const avgVuln = pathNodes.reduce((sum, n) => sum + n.vuln, 0) / pathNodes.length;
-
-  // 経路上の最大重要度（最も重要な資産を経由するか）
-  const maxImportance = Math.max(...pathNodes.map(n => n.importance));
-
-  // リスク指標 = 成功確率 × 最大重要度 × 経路長の逆数
-  // 短く、脆弱で、重要な資産を含む経路ほどリスクが高い
-  const pathLength = pathResult.path.length;
-  const riskIndex = successProb * maxImportance * (1 / Math.sqrt(pathLength));
-  console.log(`Risk Index: ${successProb} * ${maxImportance} * (1 / sqrt(${pathLength})) = ${riskIndex}`);
-
-  return {
-    successProb: successProb,
-    riskIndex: riskIndex,
-    avgVuln: avgVuln,
-    maxImportance: maxImportance,
-    pathLength: pathLength
-  };
-}
-
-/* ---------- UI Events ---------- */
 
 analyzeBtn.addEventListener("click", ()=>{
   if (!data) return;
   const sId = startSelect.value;
   const gId = goalSelect.value;
   if (!sId || !gId || sId === gId) {
-    alert("開始と目標を正しく選択してください");
+    showStatus(t("err.selectEndpoints"), "error");
     return;
   }
-  const nodePenalty = clamp(Number(nodePenaltyInput.value || 0), 0, 2);
-  const K = clamp(Number(kPathsInput.value || 3), 1, 10);
+  showStatus("");
+  const nodePenalty = core.sanitizePenalty(nodePenaltyInput.value);
+  const k = core.sanitizeK(kPathsInput.value);
+  nodePenaltyInput.value = String(nodePenalty);
+  kPathsInput.value = String(k);
 
-  const nodes = data.nodes;
-  const edges = data.edges;
-  const {adj, idx} = buildAdjacency(nodes, edges, nodePenalty);
-
-  const s = idx.get(sId), g = idx.get(gId);
-  if (s==null || g==null){
-    alert("ノードが見つかりません");
-    return;
-  }
-
-  // Yen's K-shortest paths アルゴリズムを実行
-  currentPaths = yenKShortestPaths(nodes, adj, s, g, K);
+  currentMode = rankModeSelect.value === "cost" ? "cost" : "prob";
+  currentPaths = core.findPaths(data, sId, gId, { mode: currentMode, k, nodePenalty });
   selectedPathIndex = 0;
-  renderKPathsResult(currentPaths, nodes, edges);
+  stopAnimation();
+  renderKPathsResult();
 });
+
+rankModeSelect.addEventListener("change", updateModeFields);
 
 exportBtn.addEventListener("click", ()=>{
   if (!data) return;
-  const blob = new Blob([JSON.stringify({
-    meta: data.meta, nodes: data.nodes, edges: data.edges
-  }, null, 2)], {type: "application/json"});
+  const json = JSON.stringify(core.serializeGraph(data), null, 2) + "\n";
+  const blob = new Blob([json], {type: "application/json"});
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = (data.meta?.title ? data.meta.title.replace(/\s+/g,"_") : "graph") + ".json";
+  a.download = core.exportFileName(data.meta);
   document.body.appendChild(a);
   a.click();
   a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 });
 
 fileInput.addEventListener("change", async (e)=>{
   const f = e.target.files?.[0];
   if (!f) return;
 
-  // ファイルサイズ制限（5MB）
-  const MAX_FILE_SIZE = 5 * 1024 * 1024;
-  if (f.size > MAX_FILE_SIZE) {
-    alert("ファイルサイズが大きすぎます（最大5MB）");
-    fileInput.value = "";
-    return;
-  }
-
   try{
-    const txt = await f.text();
-
-    // JSON文字列の長さ制限
-    if (txt.length > MAX_FILE_SIZE) {
-      alert("ファイルの内容が大きすぎます");
-      fileInput.value = "";
-      return;
+    // ファイルサイズ制限（5MB）
+    if (f.size > core.LIMITS.maxFileBytes) {
+      throw new core.GraphError("fileTooLarge", { mb: core.LIMITS.maxFileBytes / 1024 / 1024 });
     }
-
-    const json = JSON.parse(txt);
-
-    // 基本的なバリデーション
-    if (typeof json !== 'object' || json === null) {
-      throw new Error("無効なJSON形式です");
+    const { graph, warnings } = core.parseGraphText(await f.text());
+    setGraph(graph);
+    const title = graph.meta.title || f.name;
+    if (warnings.length) {
+      const list = [...new Set(warnings.map(w => t(`warn.${w.code}`)))].join("、");
+      showStatus(t("warn.summary", { title, count: warnings.length, list }));
+    } else {
+      showStatus("");
     }
-
-    // ノード数・エッジ数の制限（DoS対策）
-    const nodes = json.nodes || [];
-    const edges = json.edges || [];
-
-    if (!Array.isArray(nodes) || !Array.isArray(edges)) {
-      throw new Error("nodes と edges は配列である必要があります");
-    }
-
-    if (nodes.length > 1000) {
-      throw new Error("ノード数が多すぎます（最大1000）");
-    }
-
-    if (edges.length > 5000) {
-      throw new Error("エッジ数が多すぎます（最大5000）");
-    }
-
-    data = normalizeData(json);
-    buildUIOptions(data.nodes);
-    drawGraph(data);
-
-    // 結果をクリア
-    pathsListEl.innerHTML = `
-      <div class="empty-state">
-        <div class="empty-icon">🔍</div>
-        <div class="empty-text">経路を探索していません</div>
-        <div class="empty-hint">上記の設定を行い、「K最短経路を探索」ボタンを押してください</div>
-      </div>
-    `;
-    currentPaths = [];
-
+    showPresetNotification(title, graph.nodes.length, graph.edges.length);
   }catch(err){
-    alert("JSONの読み込みに失敗しました: " + err.message);
+    showStatus(t("err.importFailed", { reason: graphErrorText(err) }), "error");
   }finally{
     fileInput.value = "";
   }
@@ -573,219 +443,242 @@ fileInput.addEventListener("change", async (e)=>{
 
 /* ---------- Render K paths results ---------- */
 
-function renderKPathsResult(paths, nodes, edges){
-  // 既存ハイライト解除
-  linkSel.classed("highlight", false).classed("pulse", false);
+function emptyState() {
+  const box = document.createElement("div");
+  box.className = "empty-state";
+  const icon = document.createElement("div");
+  icon.className = "empty-icon";
+  icon.textContent = "🔍";
+  icon.setAttribute("aria-hidden", "true");
+  const text = document.createElement("div");
+  text.className = "empty-text";
+  text.textContent = t("results.emptyTitle");
+  const hint = document.createElement("div");
+  hint.className = "empty-hint";
+  hint.textContent = t("results.emptyHint");
+  box.append(icon, text, hint);
+  return box;
+}
 
-  if (!paths || paths.length === 0){
-    pathsListEl.innerHTML = '<div class="no-path">到達不可</div>';
+/** 結果を消す（マップが変わったときは必ず呼ぶ。古い経路の添字は新しいマップと合わない） */
+function resetResults() {
+  stopAnimation();
+  currentPaths = [];
+  selectedPathIndex = 0;
+  pathsListEl.replaceChildren(emptyState());
+  resultsSummaryEl.textContent = "";
+  clearHighlight();
+}
+
+function metric(label, value, cls) {
+  const m = document.createElement("span");
+  m.className = "metric";
+  const l = document.createElement("span");
+  l.className = "metric-label";
+  l.textContent = label;
+  const v = document.createElement("span");
+  v.className = `metric-value ${cls}`;
+  v.textContent = value;
+  m.append(l, v);
+  return m;
+}
+
+function renderKPathsResult(){
+  const nodes = data.nodes;
+  clearHighlight();
+
+  if (!currentPaths.length){
+    const none = document.createElement("div");
+    none.className = "no-path";
+    none.textContent = currentMode === "prob" ? t("results.noneProb") : t("results.none");
+    pathsListEl.replaceChildren(none);
+    resultsSummaryEl.textContent = none.textContent;
     return;
   }
 
   // 複数経路を表示
-  pathsListEl.innerHTML = '';
-  paths.forEach((path, index) => {
-    const pathDiv = document.createElement('div');
-    pathDiv.className = 'path-item' + (index === selectedPathIndex ? ' selected' : '');
-    pathDiv.setAttribute('data-rank', index); // ランクに応じた色分け用
+  pathsListEl.replaceChildren();
+  currentPaths.forEach((p, index) => {
+    const item = document.createElement("div");
+    item.className = "path-item" + (index === selectedPathIndex ? " selected" : "");
+    item.dataset.rank = String(index); // ランクに応じた色分け用
 
-    const idPath = path.path.map(i => nodes[i].id);
+    const select = document.createElement("button");
+    select.type = "button";
+    select.className = "path-select";
+    select.setAttribute("aria-pressed", String(index === selectedPathIndex));
 
-    // リスク指標を計算
-    const metrics = calculatePathMetrics(path, nodes);
+    const header = document.createElement("span");
+    header.className = "path-header";
+    const rank = document.createElement("span");
+    rank.className = "path-rank";
+    rank.textContent = `#${index + 1}`;
+    const hops = document.createElement("span");
+    hops.className = "path-hops";
+    hops.textContent = t("results.hops", { n: p.hops });
+    header.append(rank, hops);
 
-    pathDiv.innerHTML = `
-      <div class="path-header">
-        <span class="path-rank">#${index + 1}</span>
-        <span class="path-cost">コスト: ${path.cost.toFixed(3)}</span>
-        <button class="play-btn" data-path-index="${index}" title="経路をアニメーション再生">▶</button>
-      </div>
-      <div class="path-metrics">
-        <div class="metric">
-          <span class="metric-label">成功確率:</span>
-          <span class="metric-value success-prob">${(metrics.successProb * 100).toFixed(1)}%</span>
-        </div>
-        <div class="metric">
-          <span class="metric-label">リスク指標:</span>
-          <span class="metric-value risk-index" data-risk="${metrics.riskIndex.toFixed(3)}">${metrics.riskIndex.toFixed(3)}</span>
-        </div>
-      </div>
-      <div class="path-route">${idPath.join(" → ")}</div>
-    `;
+    const metrics = document.createElement("span");
+    metrics.className = "path-metrics";
+    metrics.append(
+      metric(t("results.prob"), core.formatPercent(p.successProb), "success-prob"),
+      metric(t("results.risk"), core.formatScore(p.risk), "risk-index"),
+      metric(t("results.cost"), core.formatCost(p.cost), "cost-value")
+    );
 
-    // 経路選択イベント
-    pathDiv.addEventListener('click', (e) => {
-      if (e.target.classList.contains('play-btn')) return; // 再生ボタンは除外
+    const route = document.createElement("span");
+    route.className = "path-route";
+    route.textContent = p.path.map(i => labelOf(nodes[i])).join(" → ");
+    route.title = p.path.map(i => nodes[i].id).join(" → ");
+
+    select.append(header, metrics, route);
+    select.addEventListener("click", () => {
+      stopAnimation();
       selectedPathIndex = index;
-      renderKPathsResult(currentPaths, nodes, edges);
+      renderKPathsResult();
     });
 
-    // アニメーション再生ボタンイベント
-    const playBtn = pathDiv.querySelector('.play-btn');
-    playBtn.addEventListener('click', (e) => {
-      e.stopPropagation();
-      animatePath(path, nodes, edges, index);
-    });
+    // アニメーション再生ボタン
+    const playBtn = document.createElement("button");
+    playBtn.type = "button";
+    playBtn.className = "play-btn";
+    playBtn.textContent = "▶";
+    playBtn.setAttribute("aria-label", t("results.play", { n: index + 1 }));
+    playBtn.title = t("results.play", { n: index + 1 });
+    playBtn.addEventListener("click", () => animatePath(index));
 
-    pathsListEl.appendChild(pathDiv);
+    item.append(select, playBtn);
+    pathsListEl.appendChild(item);
   });
 
+  resultsSummaryEl.textContent = t("results.summary", { count: currentPaths.length, mode: t(`mode.${currentMode}`) });
+
   // 選択された経路をハイライト
-  if (selectedPathIndex < paths.length){
-    highlightPath(paths[selectedPathIndex], nodes, edges);
+  if (selectedPathIndex < currentPaths.length){
+    highlightPath(currentPaths[selectedPathIndex].path);
   }
 }
 
-function highlightPath(pathResult, nodes, edges){
-  // 既存ハイライト解除
-  linkSel.classed("highlight", false).classed("pulse", false);
-  nodeSel.classed("node-highlight", false);
-
-  if (!pathResult || !pathResult.path || pathResult.path.length < 2){
-    return;
+/** 経路（ノードの添字の列）を ID の組の集合にする */
+function pathEdgeKeys(path) {
+  const keys = new Set();
+  for (let i = 0; i < path.length - 1; i++) {
+    keys.add(`${data.nodes[path[i]].id}>${data.nodes[path[i + 1]].id}`);
   }
+  return keys;
+}
 
-  // パスのエッジを抽出して強調
-  const edgeSet = new Set();
-  for (let i=0;i<pathResult.path.length-1;i++){
-    const a = nodes[pathResult.path[i]].id;
-    const b = nodes[pathResult.path[i+1]].id;
-    // 有向エッジ優先（D3.jsがsource/targetをオブジェクトに変換するため対応）
-    const e = edges.find(e => {
-      const sourceId = typeof e.source === 'object' ? e.source.id : e.source;
-      const targetId = typeof e.target === 'object' ? e.target.id : e.target;
-      return sourceId === a && targetId === b;
-    });
-    if (e) edgeSet.add(e);
-  }
+function linkKey(e) {
+  return `${core.endpointId(e.source)}>${core.endpointId(e.target)}`;
+}
 
+function clearHighlight() {
+  if (!linkSel || !nodeSel) return;
+  linkSel.classed("highlight", false).classed("pulse", false).classed("animate-edge", false)
+    .classed("animate-current-edge", false).classed("animate-future-edge", false).classed("animate-dim", false);
+  nodeSel.classed("node-highlight", false).classed("animate-node", false).classed("animate-current", false)
+    .classed("animate-future", false).classed("animate-dim", false);
+}
+
+function highlightPath(path){
+  clearHighlight();
+  if (!path || path.length < 2) return;
+
+  // パスのエッジを強調
+  const keys = pathEdgeKeys(path);
   linkSel.each(function(e){
-    const hit = edgeSet.has(e);
+    const hit = keys.has(linkKey(e));
     d3.select(this).classed("highlight", hit).classed("pulse", hit);
   });
 
   // ノードもハイライト
-  const nodeSet = new Set(pathResult.path.map(i => nodes[i].id));
+  const nodeSet = new Set(path.map(i => data.nodes[i].id));
   nodeSel.each(function(n){
-    const hit = nodeSet.has(n.id);
-    d3.select(this).classed("node-highlight", hit);
+    d3.select(this).classed("node-highlight", nodeSet.has(n.id));
   });
 }
 
 // アニメーション再生
 let currentAnimation = null;
 
-function animatePath(pathResult, nodes, edges, pathIndex){
-  // 既存のアニメーションを停止
+function stopAnimation() {
   if (currentAnimation){
     clearTimeout(currentAnimation);
     currentAnimation = null;
   }
+}
 
-  // すべてのアニメーションクラスをクリア
-  linkSel.classed("highlight", false).classed("pulse", false).classed("animate-edge", false)
-    .classed("animate-current-edge", false).classed("animate-future-edge", false).classed("animate-dim", false);
-  nodeSel.classed("node-highlight", false).classed("animate-node", false).classed("animate-current", false)
-    .classed("animate-future", false).classed("animate-dim", false);
+function animatePath(pathIndex){
+  // 経路を選択状態にする（既存のアニメーションもここで止まる）
+  stopAnimation();
+  selectedPathIndex = pathIndex;
+  renderKPathsResult();
+  clearHighlight();
 
-  if (!pathResult || !pathResult.path || pathResult.path.length < 2){
-    return;
-  }
-
-  const path = pathResult.path;
+  const path = currentPaths[pathIndex]?.path;
+  if (!path || path.length < 2) return;
+  const ids = path.map(i => data.nodes[i].id);
+  const inPath = new Set(ids);
+  const allKeys = pathEdgeKeys(path);
   let step = 0;
 
   function animateStep(){
-    if (step >= path.length){
+    if (step >= ids.length){
       // アニメーション完了 - 全経路を最終状態で表示
       nodeSel.each(function(n){
-        const isInPath = path.map(i => nodes[i].id).includes(n.id);
         d3.select(this)
           .classed("animate-current", false)
-          .classed("animate-node", isInPath)
-          .classed("animate-dim", !isInPath); // 経路外を暗くする
+          .classed("animate-future", false)
+          .classed("animate-node", inPath.has(n.id))
+          .classed("animate-dim", !inPath.has(n.id)); // 経路外を暗くする
       });
-
       linkSel.each(function(e){
-        const sourceId = typeof e.source === 'object' ? e.source.id : e.source;
-        const targetId = typeof e.target === 'object' ? e.target.id : e.target;
-        const isInPath = path.some((nodeIdx, i) => {
-          if (i === 0) return false;
-          const a = nodes[path[i-1]].id;
-          const b = nodes[nodeIdx].id;
-          return sourceId === a && targetId === b;
-        });
+        const hit = allKeys.has(linkKey(e));
         d3.select(this)
-          .classed("animate-edge", isInPath)
+          .classed("animate-edge", hit)
+          .classed("animate-current-edge", false)
+          .classed("animate-future-edge", false)
           .classed("pulse", false)
-          .classed("animate-dim", !isInPath); // 経路外を暗くする
+          .classed("animate-dim", !hit); // 経路外を暗くする
       });
-
       currentAnimation = null;
       return;
     }
 
-    const currentNodeIdx = path[step];
-    const currentNode = nodes[currentNodeIdx];
+    const past = new Set(ids.slice(0, step));
+    const current = ids[step];
+    const pastKeys = new Set();
+    for (let i = 1; i < step; i++) pastKeys.add(`${ids[i - 1]}>${ids[i]}`);
+    const currentKey = step > 0 ? `${ids[step - 1]}>${current}` : null;
 
     // すべてのノードの状態を更新
     nodeSel.each(function(n){
-      const isCurrent = n.id === currentNode.id;
-      const isPast = path.slice(0, step).map(i => nodes[i].id).includes(n.id);
-      const isInPath = path.map(i => nodes[i].id).includes(n.id);
+      const isCurrent = n.id === current;
+      const isPast = past.has(n.id);
       d3.select(this)
         .classed("animate-current", isCurrent)
         .classed("animate-node", isPast && !isCurrent)
-        .classed("animate-future", isInPath && !isCurrent && !isPast)
-        .classed("animate-dim", !isInPath); // 経路外のノードを暗く
+        .classed("animate-future", inPath.has(n.id) && !isCurrent && !isPast)
+        .classed("animate-dim", !inPath.has(n.id)); // 経路外のノードを暗く
     });
 
     // すべてのエッジの状態を更新
     linkSel.each(function(e){
-      const sourceId = typeof e.source === 'object' ? e.source.id : e.source;
-      const targetId = typeof e.target === 'object' ? e.target.id : e.target;
-
-      let isCurrentEdge = false;
-      let isPastEdge = false;
-      let isFutureEdge = false;
-
-      if (step > 0){
-        const prevNodeIdx = path[step - 1];
-        const prevNode = nodes[prevNodeIdx];
-        isCurrentEdge = sourceId === prevNode.id && targetId === currentNode.id;
-      }
-
-      isPastEdge = path.slice(0, step).some((nodeIdx, i) => {
-        if (i === 0) return false;
-        const a = nodes[path[i-1]].id;
-        const b = nodes[nodeIdx].id;
-        return sourceId === a && targetId === b;
-      });
-
-      isFutureEdge = path.slice(step).some((nodeIdx, i) => {
-        if (i === 0) return false;
-        const a = nodes[path[step + i-1]].id;
-        const b = nodes[nodeIdx].id;
-        return sourceId === a && targetId === b;
-      });
-
-      const isInPath = isCurrentEdge || isPastEdge || isFutureEdge;
-
+      const key = linkKey(e);
+      const isCurrentEdge = key === currentKey;
+      const isPastEdge = pastKeys.has(key);
+      const isFutureEdge = allKeys.has(key) && !isCurrentEdge && !isPastEdge;
       d3.select(this)
         .classed("animate-edge", isPastEdge)
         .classed("animate-current-edge", isCurrentEdge)
         .classed("animate-future-edge", isFutureEdge)
         .classed("pulse", isCurrentEdge)
-        .classed("animate-dim", !isInPath); // 経路外のエッジを暗く
+        .classed("animate-dim", !allKeys.has(key)); // 経路外のエッジを暗く
     });
 
     step++;
     currentAnimation = setTimeout(animateStep, 1000); // 1000msごとに次のステップ
   }
-
-  // 経路を選択状態にする
-  selectedPathIndex = pathIndex;
-  renderKPathsResult(currentPaths, nodes, edges);
 
   // アニメーション開始
   animateStep();
@@ -793,259 +686,255 @@ function animatePath(pathResult, nodes, edges, pathIndex){
 
 /* ---------- 編集機能 ---------- */
 
+/** マップを書き換えたあとの共通処理。開始・目標の選択は残し、結果は消す */
+function afterEdit() {
+  buildUIOptions(data.nodes, { keepSelection: true });
+  drawGraph(data);
+  resetResults();
+}
+
+function setTypeOptions(type) {
+  // 選択肢にない種類（インポートしたファイルの独自の種類）は一時的に足して、保存で空にならないようにする
+  nodeDialogType.querySelectorAll("option[data-extra]").forEach(o => o.remove());
+  if (!core.NODE_TYPES.includes(type)) {
+    const o = document.createElement("option");
+    o.value = type;
+    o.textContent = type;
+    o.dataset.extra = "1";
+    nodeDialogType.appendChild(o);
+  }
+  nodeDialogType.value = type;
+}
+
+function setColorAuto(auto) {
+  nodeDialogColorAuto.checked = auto;
+  if (auto) nodeDialogColor.value = core.typeColor(nodeDialogType.value);
+}
+
+function openDialog(dlg, errEl) {
+  errEl.textContent = "";
+  errEl.hidden = true;
+  dlg.showModal();
+}
+
+function dialogError(errEl, text) {
+  errEl.textContent = text;
+  errEl.hidden = false;
+}
+
 // ノード追加ボタン
 addNodeBtn.addEventListener('click', () => {
+  if (!data) return;
   editMode = 'add';
-  nodeDialogTitle.textContent = 'ノード追加';
-  nodeDialogId.value = `node${data.nodes.length + 1}`;
+  nodeDialogTitle.textContent = t("dialog.addTitle");
+  nodeDialogId.value = core.nextNodeId(data.nodes);
   nodeDialogLabel.value = '';
-  nodeDialogType.value = 'node';
+  setTypeOptions('node');
   nodeDialogVuln.value = 0.5;
   nodeDialogImportance.value = 0.5;
-  nodeDialogColor.value = '#9fb3c8';
+  setColorAuto(true);
   nodeDialogId.disabled = false;
-  nodeDialog.style.display = 'flex';
+  openDialog(nodeDialog, nodeDialogError);
 });
 
 // ノード編集ボタン
 editNodeBtn.addEventListener('click', () => {
   if (!selectedNode) return;
   editMode = 'edit';
-  nodeDialogTitle.textContent = 'ノード編集';
+  nodeDialogTitle.textContent = t("dialog.editTitle");
   nodeDialogId.value = selectedNode.id;
   nodeDialogLabel.value = selectedNode.label;
-  nodeDialogType.value = selectedNode.type;
+  setTypeOptions(selectedNode.type);
   nodeDialogVuln.value = selectedNode.vuln;
   nodeDialogImportance.value = selectedNode.importance;
-  nodeDialogColor.value = selectedNode.color || colorByType(selectedNode);
+  setColorAuto(!selectedNode.color);
+  if (selectedNode.color) nodeDialogColor.value = selectedNode.color;
   nodeDialogId.disabled = true;
-  nodeDialog.style.display = 'flex';
+  openDialog(nodeDialog, nodeDialogError);
 });
 
 // ノード削除ボタン
 deleteNodeBtn.addEventListener('click', () => {
   if (!selectedNode) return;
-  if (!confirm(`ノード "${selectedNode.label}" を削除しますか？`)) return;
+  if (!confirm(t("confirm.deleteNode", { label: labelOf(selectedNode) }))) return;
 
-  // ノードを削除
-  data.nodes = data.nodes.filter(n => n.id !== selectedNode.id);
-  // 関連するエッジも削除
-  data.edges = data.edges.filter(e => {
-    const sourceId = typeof e.source === 'object' ? e.source.id : e.source;
-    const targetId = typeof e.target === 'object' ? e.target.id : e.target;
-    return sourceId !== selectedNode.id && targetId !== selectedNode.id;
-  });
+  const id = selectedNode.id;
+  data.nodes = data.nodes.filter(n => n.id !== id);
+  // 関連するエッジと攻撃目標からも外す
+  data.edges = data.edges.filter(e => e.source !== id && e.target !== id);
+  data.attack_goals = (data.attack_goals || []).filter(g => g !== id);
 
   selectedNode = null;
-  nodeEditPanel.style.display = 'none';
-  nodePopup.style.display = 'none';
-  buildUIOptions(data.nodes);
-  drawGraph(data);
+  renderNodeInfo(null);
+  afterEdit();
 });
 
 // ノードダイアログ保存
 nodeDialogSave.addEventListener('click', () => {
   const id = nodeDialogId.value.trim();
   const label = nodeDialogLabel.value.trim() || id;
-  const type = nodeDialogType.value;
-  const vuln = clamp(Number(nodeDialogVuln.value), 0, 1);
-  const importance = clamp(Number(nodeDialogImportance.value), 0, 1);
+  const type = nodeDialogType.value || 'node';
+  const vuln = core.toUnit(nodeDialogVuln.value, 0.5);
+  const importance = core.toUnit(nodeDialogImportance.value, 0.5);
+  const auto = nodeDialogColorAuto.checked;
   const color = nodeDialogColor.value;
 
-  // 入力バリデーション
-  if (!id) {
-    alert('IDを入力してください');
+  // 入力バリデーション（インポートと同じ規則）
+  if (editMode === 'add' && !core.ID_PATTERN.test(id)) {
+    dialogError(nodeDialogError, t("err.idPattern"));
     return;
   }
-
-  // ID/Labelの長さ制限（XSS/DoS対策）
-  if (id.length > 100) {
-    alert('IDが長すぎます（最大100文字）');
-    return;
-  }
-
-  if (label.length > 200) {
-    alert('ラベルが長すぎます（最大200文字）');
-    return;
-  }
-
-  // 英数字、アンダースコア、ハイフンのみ許可（ID）
-  if (!/^[a-zA-Z0-9_-]+$/.test(id)) {
-    alert('IDには英数字、アンダースコア、ハイフンのみ使用できます');
+  if (label.length > core.LIMITS.maxLabelLength) {
+    dialogError(nodeDialogError, t("err.labelTooLong"));
     return;
   }
 
   if (editMode === 'add') {
     // ID重複チェック
-    if (data.nodes.find(n => n.id === id)) {
-      alert('このIDは既に存在します');
+    if (data.nodes.some(n => n.id === id)) {
+      dialogError(nodeDialogError, t("err.idExists"));
       return;
     }
-
-    // 新規ノード追加
     const newNode = {id, label, type, vuln, importance};
-    if (color) newNode.color = color;
+    if (!auto && core.COLOR_PATTERN.test(color)) newNode.color = color.toLowerCase();
     data.nodes.push(newNode);
   } else if (editMode === 'edit' && selectedNode) {
     // 既存ノードを更新
     const node = data.nodes.find(n => n.id === selectedNode.id);
     if (node) {
+      if (label !== node.label) delete node.label_en; // 日本語のラベルを変えたら古い英語ラベルは外す
       node.label = label;
       node.type = type;
       node.vuln = vuln;
       node.importance = importance;
-      if (color) {
-        node.color = color;
+      if (!auto && core.COLOR_PATTERN.test(color)) {
+        node.color = color.toLowerCase();
       } else {
-        delete node.color; // カスタム色をクリア
+        delete node.color; // 種類に応じた自動の色に戻す
       }
+      selectedNode = node;
     }
   }
 
-  nodeDialog.style.display = 'none';
-  buildUIOptions(data.nodes);
-  drawGraph(data);
+  nodeDialog.close();
+  renderNodeInfo(selectedNode);
+  afterEdit();
 });
 
 // ノードダイアログキャンセル
-nodeDialogCancel.addEventListener('click', () => {
-  nodeDialog.style.display = 'none';
-});
+nodeDialogCancel.addEventListener('click', () => nodeDialog.close());
 
-// カラーリセットボタン
-nodeDialogColorReset.addEventListener('click', () => {
-  const type = nodeDialogType.value;
-  const defaultColor = colorByType({type: type});
-  nodeDialogColor.value = defaultColor;
+// 色: 自動にする／色を選んだら自動を外す
+nodeDialogColorReset.addEventListener('click', () => setColorAuto(true));
+nodeDialogColorAuto.addEventListener('change', () => setColorAuto(nodeDialogColorAuto.checked));
+nodeDialogColor.addEventListener('input', () => { nodeDialogColorAuto.checked = false; });
+nodeDialogType.addEventListener('change', () => {
+  if (nodeDialogColorAuto.checked) nodeDialogColor.value = core.typeColor(nodeDialogType.value);
 });
 
 // エッジ追加ボタン
 addEdgeBtn.addEventListener('click', () => {
   if (!data || data.nodes.length < 2) {
-    alert('エッジを追加するには少なくとも2つのノードが必要です');
+    showStatus(t("err.needTwoNodes"), "error");
     return;
   }
-
-  // ノードリストを更新
-  edgeDialogSource.innerHTML = '';
-  edgeDialogTarget.innerHTML = '';
-  data.nodes.forEach(n => {
-    const opt1 = document.createElement('option');
-    opt1.value = n.id;
-    opt1.textContent = `${n.label} (${n.id})`;
-    edgeDialogSource.appendChild(opt1);
-
-    const opt2 = document.createElement('option');
-    opt2.value = n.id;
-    opt2.textContent = `${n.label} (${n.id})`;
-    edgeDialogTarget.appendChild(opt2);
-  });
-
+  edgeDialogSource.value = startSelect.value || data.nodes[0].id;
+  edgeDialogTarget.value = data.nodes.find(n => n.id !== edgeDialogSource.value).id;
   edgeDialogWeight.value = 1.0;
-  edgeDialog.style.display = 'flex';
+  openDialog(edgeDialog, edgeDialogError);
 });
 
 // エッジダイアログ保存
 edgeDialogSave.addEventListener('click', () => {
   const source = edgeDialogSource.value;
   const target = edgeDialogTarget.value;
-  const weight = Number(edgeDialogWeight.value);
+  const raw = edgeDialogWeight.value.trim();
+  const weight = raw === "" ? NaN : Number(raw);
 
   if (source === target) {
-    alert('同じノードへのエッジは作成できません');
+    dialogError(edgeDialogError, t("err.sameNode"));
+    return;
+  }
+  if (data.edges.some(e => e.source === source && e.target === target)) {
+    dialogError(edgeDialogError, t("err.edgeExists"));
+    return;
+  }
+  if (!Number.isFinite(weight) || weight < 0) {
+    dialogError(edgeDialogError, t("err.weight"));
     return;
   }
 
   // エッジ追加
   data.edges.push({source, target, weight});
 
-  edgeDialog.style.display = 'none';
-  drawGraph(data);
+  edgeDialog.close();
+  afterEdit();
 });
 
 // エッジダイアログキャンセル
-edgeDialogCancel.addEventListener('click', () => {
-  edgeDialog.style.display = 'none';
-});
+edgeDialogCancel.addEventListener('click', () => edgeDialog.close());
 
-// ダイアログ外クリックで閉じる
-nodeDialog.addEventListener('click', (e) => {
-  if (e.target === nodeDialog) {
-    nodeDialog.style.display = 'none';
-  }
-});
-
-edgeDialog.addEventListener('click', (e) => {
-  if (e.target === edgeDialog) {
-    edgeDialog.style.display = 'none';
-  }
-});
+// ダイアログ外（背景）クリックで閉じる
+for (const dlg of [nodeDialog, edgeDialog]) {
+  dlg.addEventListener('click', (e) => {
+    if (e.target === dlg) dlg.close();
+  });
+}
 
 // プリセット読込ボタン
-loadPresetBtn.addEventListener('click', () => {
+loadPresetBtn.addEventListener('click', async () => {
   const preset = presetSelect.value;
   if (!preset) {
-    alert('プリセットを選択してください');
+    showStatus(t("err.selectPreset"), "error");
     return;
   }
 
-  fetch(`./sample-data/${preset}.json`)
-    .then(r => {
-      if (!r.ok) throw new Error('Failed to load preset');
-      return r.json();
-    })
-    .then(json => {
-      data = normalizeData(json);
-      buildUIOptions(data.nodes);
-      drawGraph(data);
-
-      // 結果をクリア
-      currentPaths = [];
-      selectedPathIndex = 0;
-      pathsListEl.innerHTML = `
-        <div class="empty-state">
-          <div class="empty-icon">🔍</div>
-          <div class="empty-text">経路を探索していません</div>
-          <div class="empty-hint">上記の設定を行い、「K最短経路を探索」ボタンを押してください</div>
-        </div>
-      `;
-
-      // 通知を表示
-      showPresetNotification(json.meta?.title || preset, data.nodes.length, data.edges.length);
-    })
-    .catch(err => {
-      console.error(err);
-      alert('プリセットの読み込みに失敗しました');
-    });
+  try {
+    const graph = await loadSample(preset);
+    setGraph(graph);
+    showStatus("");
+    // 通知を表示
+    showPresetNotification(graph.meta.title || preset, graph.nodes.length, graph.edges.length);
+  } catch {
+    showStatus(t("err.presetLoad"), "error");
+  }
 });
 
-// プリセット読込通知を表示
+// 読み込みの通知を表示
 function showPresetNotification(title, nodeCount, edgeCount) {
-  presetNotificationTitle.textContent = 'プリセット読込完了';
-  presetNotificationDetail.innerHTML = `
-    <strong>${title}</strong><br>
-    ノード: ${nodeCount}個、エッジ: ${edgeCount}個
-  `;
+  presetNotificationTitle.textContent = t("notify.loaded");
+  const strong = document.createElement("strong");
+  strong.textContent = title;
+  presetNotificationDetail.replaceChildren(strong, document.createElement("br"),
+    t("notify.detail", { nodes: nodeCount, edges: edgeCount }));
 
   presetNotification.classList.remove('hiding');
-  presetNotification.style.display = 'block';
+  presetNotification.hidden = false;
 
   // 3秒後に自動で閉じる
-  setTimeout(() => {
-    hidePresetNotification();
-  }, 3000);
+  clearTimeout(notificationTimer);
+  notificationTimer = setTimeout(hidePresetNotification, 3000);
 }
 
 // 通知を閉じる
 function hidePresetNotification() {
+  clearTimeout(notificationTimer);
   presetNotification.classList.add('hiding');
-  setTimeout(() => {
-    presetNotification.style.display = 'none';
+  notificationTimer = setTimeout(() => {
+    presetNotification.hidden = true;
     presetNotification.classList.remove('hiding');
   }, 300);
 }
 
 // 通知の閉じるボタン
-presetNotificationClose.addEventListener('click', () => {
-  hidePresetNotification();
-});
+presetNotificationClose.addEventListener('click', hidePresetNotification);
+
+/* ---------- 起動 ---------- */
+
+updateModeFields();
+loadSample("sample-facility")
+  .then(setGraph)
+  .catch(() => {
+    // サンプルを読めないとき（オフラインなど）は最小のマップで動かす
+    setGraph(fallbackGraph());
+  });
