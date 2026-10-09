@@ -81,7 +81,10 @@
 
         <div id="results" class="results">
           <h3 data-i18n="results.title">結果</h3>
+          <label class="check-label results-option"><input type="checkbox" id="dimOthers" checked />
+            <span data-i18n="results.dimOthers">経路以外を薄くする</span></label>
           <p id="resultsSummary" class="results-summary" aria-live="polite"></p>
+          <p id="commonNodes" class="common-nodes"></p>
           <div id="pathsList" class="paths-list"></div>
         </div>
       </section>
@@ -134,6 +137,7 @@
           <div class="legend-item"><span class="legend-color type-person"></span> Person</div>
           <div class="legend-item"><span class="legend-color type-gateway"></span> Gateway/Room</div>
           <div class="legend-item"><span class="legend-color type-node"></span> Other (node)</div>
+          <div class="legend-item"><span class="legend-ring"></span> <span data-i18n="legend.common">表示中の経路がすべて通る</span></div>
         </div>
       </div>
 

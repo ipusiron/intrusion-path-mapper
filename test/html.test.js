@@ -67,7 +67,7 @@ test("インラインのイベントハンドラーがない", () => {
 test("主要な要素の id がある", () => {
   const ids = [
     "fileInput", "exportBtn", "statusMsg", "presetSelect", "loadPresetBtn", "startSelect", "goalSelect", "rankMode",
-    "kPaths", "nodePenalty", "analyzeBtn", "resultsSummary", "pathsList", "addNodeBtn", "addEdgeBtn", "nodeEditPanel",
+    "kPaths", "nodePenalty", "analyzeBtn", "dimOthers", "resultsSummary", "commonNodes", "pathsList", "addNodeBtn", "addEdgeBtn", "nodeEditPanel",
     "editNodeBtn", "deleteNodeBtn", "nodeInfo", "graph", "nodePopup", "presetNotification", "presetNotificationTitle",
     "presetNotificationDetail", "presetNotificationClose", "nodeDialog", "nodeDialogTitle", "nodeDialogError", "nodeDialogId",
     "nodeDialogLabel", "nodeDialogType", "nodeDialogVuln", "nodeDialogImportance", "nodeDialogColor", "nodeDialogColorAuto",

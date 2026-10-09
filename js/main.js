@@ -32,6 +32,8 @@ const nodePenaltyInput = document.getElementById("nodePenalty");
 const kPathsInput = document.getElementById("kPaths");
 const pathsListEl = document.getElementById("pathsList");
 const resultsSummaryEl = document.getElementById("resultsSummary");
+const commonNodesEl = document.getElementById("commonNodes");
+const dimOthersInput = document.getElementById("dimOthers");
 const nodeInfoEl  = document.getElementById("nodeInfo");
 const exportBtn   = document.getElementById("exportBtn");
 const fileInput   = document.getElementById("fileInput");
@@ -614,6 +616,14 @@ function revealResults() {
 
 rankModeSelect.addEventListener("change", updateModeFields);
 
+// 経路以外を薄くする（切り替えたら、選んでいる経路で描き直す）
+dimOthersInput.addEventListener("change", () => {
+  if (!currentPaths.length) return;
+  stopAnimation();
+  highlightPath(currentPaths[selectedPathIndex].path);
+  markCommonNodes();
+});
+
 exportBtn.addEventListener("click", ()=>{
   if (!data) return;
   const json = JSON.stringify(core.serializeGraph(data), null, 2) + "\n";
@@ -683,7 +693,9 @@ function resetResults() {
   selectedPathIndex = 0;
   pathsListEl.replaceChildren(emptyState());
   resultsSummaryEl.textContent = "";
+  commonNodesEl.textContent = "";
   clearHighlight();
+  markCommonNodes();
 }
 
 function metric(label, value, cls) {
@@ -709,6 +721,8 @@ function renderKPathsResult(){
     none.textContent = currentMode === "prob" ? t("results.noneProb") : t("results.none");
     pathsListEl.replaceChildren(none);
     resultsSummaryEl.textContent = none.textContent;
+    commonNodesEl.textContent = "";
+    markCommonNodes();
     return;
   }
 
@@ -769,6 +783,17 @@ function renderKPathsResult(){
 
   resultsSummaryEl.textContent = t("results.summary", { count: currentPaths.length, mode: t(`mode.${currentMode}`) });
 
+  // 表示中の経路がすべて通るノード（対策を置く候補）
+  if (currentPaths.length >= 2) {
+    const common = core.commonNodes(currentPaths).map(i => labelOf(data.nodes[i]));
+    commonNodesEl.textContent = common.length
+      ? t("results.common", { count: currentPaths.length, list: common.join(t("list.sep")) })
+      : t("results.commonNone", { count: currentPaths.length });
+  } else {
+    commonNodesEl.textContent = "";
+  }
+  markCommonNodes();
+
   // 選択された経路をハイライト
   if (selectedPathIndex < currentPaths.length){
     highlightPath(currentPaths[selectedPathIndex].path);
@@ -791,9 +816,17 @@ function linkKey(e) {
 function clearHighlight() {
   if (!linkSel || !nodeSel) return;
   linkSel.classed("highlight", false).classed("pulse", false).classed("animate-edge", false)
-    .classed("animate-current-edge", false).classed("animate-future-edge", false).classed("animate-dim", false);
+    .classed("animate-current-edge", false).classed("animate-future-edge", false).classed("animate-dim", false)
+    .classed("path-dim", false);
   nodeSel.classed("node-highlight", false).classed("animate-node", false).classed("animate-current", false)
-    .classed("animate-future", false).classed("animate-dim", false);
+    .classed("animate-future", false).classed("animate-dim", false).classed("path-dim", false);
+}
+
+/** 表示中の経路がすべて通るノードに印を付ける（経路が2本未満なら外す） */
+function markCommonNodes() {
+  if (!nodeSel) return;
+  const ids = new Set(currentPaths.length >= 2 ? core.commonNodes(currentPaths).map(i => data.nodes[i].id) : []);
+  nodeSel.classed("node-common", n => ids.has(n.id));
 }
 
 function highlightPath(path){
@@ -812,6 +845,12 @@ function highlightPath(path){
   nodeSel.each(function(n){
     d3.select(this).classed("node-highlight", nodeSet.has(n.id));
   });
+
+  // 経路以外を薄くする（大きなマップで経路が埋もれないように。切り替えられる）
+  if (dimOthersInput.checked) {
+    linkSel.classed("path-dim", e => !keys.has(linkKey(e)));
+    nodeSel.classed("path-dim", n => !nodeSet.has(n.id));
+  }
 }
 
 // アニメーション再生

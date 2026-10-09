@@ -70,6 +70,10 @@ export const MESSAGES = {
     "results.hops": "{n}手",
     "results.play": "経路#{n}をアニメーション再生",
     "mode.prob": "成功確率の高い順",
+    "results.dimOthers": "経路以外を薄くする",
+    "results.common": "表示中の{count}本がすべて通るノード：{list}",
+    "results.commonNone": "表示中の{count}本がすべて通るノードはありません",
+    "legend.common": "表示中の経路がすべて通る",
     "mode.cost": "コストの低い順",
 
     "info.empty": "（ノードをクリック）",
@@ -211,6 +215,10 @@ export const MESSAGES = {
     "results.hops": "Hops: {n}",
     "results.play": "Play the animation of path #{n}",
     "mode.prob": "Highest success probability",
+    "results.dimOthers": "Dim everything off the path",
+    "results.common": "Nodes on all {count} paths shown: {list}",
+    "results.commonNone": "No node is on all {count} paths shown.",
+    "legend.common": "On all paths shown",
     "mode.cost": "Lowest cost",
 
     "info.empty": "(Click a node)",
