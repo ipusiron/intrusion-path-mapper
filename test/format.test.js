@@ -18,6 +18,10 @@ test("1行に詰め込んだファイルがない（JS・CSS・テストは160�
   }
 });
 
+test("index.html の最長行は250文字以下", () => {
+  assert.ok(longest("index.html") <= 250, String(longest("index.html")));
+});
+
 test("主要ファイルの行数の下限", () => {
   const min = { "js/main.js": 500, "js/ipm-core.js": 300, "css/style.css": 600, "index.html": 150 };
   for (const [rel, n] of Object.entries(min)) {

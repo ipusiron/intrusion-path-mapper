@@ -43,6 +43,19 @@ button, .btn, .file-btn {
   font-weight: 400;
 }
 button:hover, .btn:hover, .file-btn:hover { border-color: var(--accent); }
+button, .file-btn { min-height: 44px; }
+button:disabled, input:disabled { opacity: 0.55; cursor: not-allowed; }
+
+/* キーボード操作の位置を見えるようにする */
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.file-btn:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.node:focus { outline: none; }
+.node:focus-visible circle { stroke: #ffffff; stroke-width: 4px; }
+
+.noscript {
+  margin: 0; padding: 12px 20px; background: #3a1d1d; color: var(--text);
+  border-bottom: 1px solid var(--danger); font-size: 14px;
+}
 
 /* 主要アクションボタン */
 .primary-action-btn {
@@ -73,9 +86,20 @@ button:hover, .btn:hover, .file-btn:hover { border-color: var(--accent); }
   position: absolute; inset: 0; opacity: 0; cursor: pointer;
 }
 
-.layout { display: grid; grid-template-columns: 340px 1fr; min-height: calc(100vh - 60px); }
-.sidebar { border-right: 1px solid var(--line); background: linear-gradient(180deg, #121827, #10141f); }
-.canvas-wrap { position: relative; }
+.layout { display: grid; grid-template-columns: 340px minmax(0, 1fr); min-height: calc(100dvh - 69px); }
+.sidebar { min-width: 0; border-right: 1px solid var(--line); background: linear-gradient(180deg, #121827, #10141f); }
+
+/* 広い画面: サイドバーだけをスクロールし、マップは見えたままにする（69px はヘッダーの高さの実測値） */
+@media (min-width: 861px) {
+  .sidebar {
+    position: sticky;
+    top: 69px;
+    align-self: start;
+    max-height: calc(100dvh - 69px);
+    overflow-y: auto;
+  }
+}
+.canvas-wrap { position: relative; min-width: 0; overflow: hidden; }
 
 /* グラフ凡例 */
 .graph-legend {
@@ -122,6 +146,14 @@ button:hover, .btn:hover, .file-btn:hover { border-color: var(--accent); }
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.3);
 }
 
+/* 凡例の色（ipm-core.js の TYPE_COLORS と同じ値） */
+.legend-color.type-server { background: #7cc7ff; }
+.legend-color.type-device { background: #ffd580; }
+.legend-color.type-account { background: #c3a6ff; }
+.legend-color.type-person { background: #ffb3d9; }
+.legend-color.type-gateway { background: #9affc3; }
+.legend-color.type-node { background: #9fb3c8; }
+
 .panel { padding: 16px; border-bottom: 1px solid var(--line); }
 .panel h2 { margin: 0 0 12px; font-size: 16px; color: var(--accent); }
 
@@ -145,6 +177,7 @@ button:hover, .btn:hover, .file-btn:hover { border-color: var(--accent); }
 
 /* アイコンボタン */
 .icon-btn {
+  min-width: 44px;
   background: rgba(111, 211, 255, 0.1);
   border: 1px solid var(--accent);
   color: var(--text);
@@ -173,6 +206,7 @@ button:hover, .btn:hover, .file-btn:hover { border-color: var(--accent); }
 .field { display: grid; gap: 6px; margin-bottom: 12px; }
 select, input[type=number] {
   background: #0f1422; color: var(--text); border: 1px solid var(--line); padding: 8px; border-radius: 8px;
+  font-size: 16px; min-height: 44px; min-width: 0; max-width: 100%; font-family: inherit;
 }
 
 /* プリセット読込ボタン */
@@ -224,8 +258,6 @@ select, input[type=number] {
   display: flex;
   flex-direction: column;
   gap: 8px;
-  max-height: 300px;
-  overflow-y: auto;
 }
 
 .path-item {
@@ -375,8 +407,8 @@ select, input[type=number] {
 }
 
 .path-route {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 11px;
+  display: block;
+  font-size: 12px;
   color: var(--text);
   line-height: 1.5;
   word-break: break-word;
@@ -555,25 +587,32 @@ select, input[type=number] {
   border: 1px solid var(--line);
   padding: 8px;
   border-radius: 6px;
-  font-size: 14px;
+  font-size: 16px;
+  min-height: 44px;
   font-family: inherit;
 }
 
 .form-field input:focus,
 .form-field select:focus {
-  outline: none;
   border-color: var(--accent);
 }
 
 .form-field input[type="color"] {
-  width: auto;
-  height: 40px;
+  width: 56px;
+  height: 44px;
   padding: 2px;
   cursor: pointer;
 }
 
+.form-field .check-label input[type="checkbox"] {
+  width: 20px;
+  min-height: 20px;
+  height: 20px;
+}
+
 .color-picker-row {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   align-items: center;
 }
@@ -637,7 +676,7 @@ select, input[type=number] {
   border-color: var(--accent2);
 }
 
-svg { width: 100%; height: calc(100vh - 60px); background: transparent; }
+svg#graph { display: block; width: 100%; height: calc(100dvh - 69px); min-height: 420px; background: transparent; }
 
 .link {
   stroke: #6b7280; stroke-opacity: 0.6; stroke-width: 1.6;
@@ -646,6 +685,12 @@ svg { width: 100%; height: calc(100vh - 60px); background: transparent; }
 .link.highlight {
   stroke: var(--accent2); stroke-width: 4px; stroke-opacity: 1;
   filter: drop-shadow(0 0 6px rgba(163,255,168,0.6));
+}
+
+.link.highlight,
+.link.animate-edge,
+.link.animate-current-edge {
+  marker-end: url(#arrow-hi);
 }
 
 /* アニメーション用のエッジスタイル */
@@ -843,8 +888,8 @@ footer .footer a:visited {
   border: 2px solid var(--accent2);
   border-radius: 12px;
   padding: 16px 20px;
-  min-width: 320px;
-  max-width: 400px;
+  min-width: min(320px, calc(100vw - 32px));
+  max-width: min(400px, calc(100vw - 32px));
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6), 0 0 20px rgba(163, 255, 168, 0.3);
   backdrop-filter: blur(12px);
   display: flex;
@@ -891,8 +936,8 @@ footer .footer a:visited {
   line-height: 1;
   cursor: pointer;
   padding: 0;
-  width: 24px;
-  height: 24px;
+  width: 44px;
+  height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -904,4 +949,29 @@ footer .footer a:visited {
 .notification-close:hover {
   background: rgba(255, 255, 255, 0.1);
   color: var(--text);
+}
+
+/* 狭い画面: 1列にしてマップを上に置く（基本の規則より後ろに書く） */
+@media (max-width: 860px) {
+  .app-header { flex-wrap: wrap; gap: 8px; padding: 10px 16px; position: static; }
+  h1 { font-size: 17px; }
+  .actions { flex-wrap: wrap; }
+  .layout { grid-template-columns: minmax(0, 1fr); }
+  .canvas-wrap { order: -1; border-bottom: 1px solid var(--line); }
+  svg#graph { height: 60dvh; min-height: 340px; }
+  .sidebar { border-right: none; }
+  .graph-legend { top: auto; bottom: 8px; right: 8px; left: 8px; padding: 8px 10px; }
+  .legend-title { display: none; }
+  .legend-items { flex-direction: row; flex-wrap: wrap; gap: 4px 12px; }
+  .notification { top: 12px; right: 16px; }
+}
+
+/* 動きを減らす設定では、点滅・移動のアニメーションを止める */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+  .primary-action-btn:hover { transform: none; }
 }

@@ -5,18 +5,21 @@
   <meta name="viewport" content="width=device-width,initial-scale=1" />
   <title>Intrusion Path Mapper</title>
 
-  <!-- Security Headers (一部はHTTPヘッダーでのみ有効) -->
-  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://d3js.org; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self';">
-  <meta http-equiv="X-Content-Type-Options" content="nosniff">
+  <!-- CSP は meta で指定する（GitHub Pages はレスポンスヘッダーを設定できない。frame-ancestors などヘッダー専用の指定は meta では効かない） -->
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'">
   <meta name="referrer" content="no-referrer">
 
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔍</text></svg>">
   <link rel="stylesheet" href="./css/style.css" />
-  <!-- D3.js v7 CDN -->
-  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <!-- D3.js 7.9.0 は vendor/ に自己ホスト（ISC License、vendor/d3/LICENSE） -->
+  <script src="./vendor/d3/d3.v7.9.0.min.js"></script>
   <script type="module" src="./js/main.js"></script>
 </head>
 <body>
+  <noscript>
+    <p class="noscript">このツールは JavaScript を使います。ブラウザーの設定で JavaScript を有効にしてください。<br>
+    This tool requires JavaScript. Please enable JavaScript in your browser.</p>
+  </noscript>
   <header class="app-header">
     <h1>Intrusion Path Mapper - 侵入経路マッピングツール</h1>
     <div class="actions">
@@ -119,11 +122,12 @@
       <div class="graph-legend">
         <div class="legend-title">ノードタイプ</div>
         <div class="legend-items">
-          <div class="legend-item"><span class="legend-color" style="background: #7cc7ff;"></span> Server</div>
-          <div class="legend-item"><span class="legend-color" style="background: #ffd580;"></span> Device</div>
-          <div class="legend-item"><span class="legend-color" style="background: #c3a6ff;"></span> Account</div>
-          <div class="legend-item"><span class="legend-color" style="background: #ffb3d9;"></span> Person</div>
-          <div class="legend-item"><span class="legend-color" style="background: #9affc3;"></span> Gateway/Room</div>
+          <div class="legend-item"><span class="legend-color type-server"></span> Server</div>
+          <div class="legend-item"><span class="legend-color type-device"></span> Device</div>
+          <div class="legend-item"><span class="legend-color type-account"></span> Account</div>
+          <div class="legend-item"><span class="legend-color type-person"></span> Person</div>
+          <div class="legend-item"><span class="legend-color type-gateway"></span> Gateway/Room</div>
+          <div class="legend-item"><span class="legend-color type-node"></span> Other (node)</div>
         </div>
       </div>
 

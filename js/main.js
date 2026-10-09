@@ -171,14 +171,18 @@ function drawGraph(graphData) {
   svg.selectAll("*").remove();
   hidePopup();
 
+  // 矢印は線の太さに比例させず一定の大きさにする（強調した経路は色だけ変える。CSS の marker-end で切り替え）
   const defs = svg.append("defs");
-  defs.append("marker")
-    .attr("id","arrow")
-    .attr("viewBox","0 -5 10 10")
-    .attr("refX",10).attr("refY",0)
-    .attr("markerWidth",6).attr("markerHeight",6)
-    .attr("orient","auto")
-    .append("path").attr("d","M0,-5L10,0L0,5").attr("fill","#8aa0b6");
+  for (const [id, fill] of [["arrow", "#8aa0b6"], ["arrow-hi", "#a3ffa8"]]) {
+    defs.append("marker")
+      .attr("id", id)
+      .attr("viewBox","0 -5 10 10")
+      .attr("refX",10).attr("refY",0)
+      .attr("markerUnits","userSpaceOnUse")
+      .attr("markerWidth",10).attr("markerHeight",10)
+      .attr("orient","auto")
+      .append("path").attr("d","M0,-5L10,0L0,5").attr("fill", fill);
+  }
 
   // D3 は source/target をノードのオブジェクトに置き換えるので、描画用の写しを渡す（data.edges は ID のまま）
   const links = graphData.edges.map(e => ({ source: e.source, target: e.target, weight: e.weight }));
@@ -398,7 +402,19 @@ analyzeBtn.addEventListener("click", ()=>{
   selectedPathIndex = 0;
   stopAnimation();
   renderKPathsResult();
+  revealResults();
 });
+
+/** 広い画面（サイドバーだけがスクロールする）では、結果が隠れていればサイドバーを送る */
+function revealResults() {
+  const sidebar = document.querySelector(".sidebar");
+  const results = document.getElementById("results");
+  if (getComputedStyle(sidebar).overflowY !== "auto") return; // 狭い画面ではページを動かさない
+  const top = results.offsetTop;
+  if (top + 120 > sidebar.scrollTop + sidebar.clientHeight) {
+    sidebar.scrollTo({ top: Math.max(0, top - 8) });
+  }
+}
 
 rankModeSelect.addEventListener("change", updateModeFields);
 
