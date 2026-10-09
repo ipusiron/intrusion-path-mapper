@@ -1,19 +1,19 @@
 {
   "meta": { "title": "Social Engineering Attack", "author": "ipusiron", "created_at": "2025-10-01" },
   "nodes": [
-    { "id": "attacker",        "type": "person",  "label": "攻撃者",           "vuln": 1.00, "importance": 0.05 },
-    { "id": "contractor",      "type": "person",  "label": "契約社員",         "vuln": 0.80, "importance": 0.50 },
-    { "id": "employee",        "type": "person",  "label": "一般社員",         "vuln": 0.70, "importance": 0.60 },
-    { "id": "admin_staff",     "type": "person",  "label": "管理者",           "vuln": 0.50, "importance": 0.90 },
-    { "id": "ceo",             "type": "person",  "label": "社長",             "vuln": 0.40, "importance": 1.00 },
-    { "id": "employee_pc",     "type": "device",  "label": "社員PC",           "vuln": 0.60, "importance": 0.60 },
-    { "id": "admin_pc",        "type": "device",  "label": "管理者PC",         "vuln": 0.40, "importance": 0.85 },
-    { "id": "ceo_pc",          "type": "device",  "label": "社長PC",           "vuln": 0.40, "importance": 1.00 },
-    { "id": "email_server",    "type": "server",  "label": "メールサーバー",   "vuln": 0.45, "importance": 0.70 },
-    { "id": "file_server",     "type": "server",  "label": "ファイルサーバー", "vuln": 0.50, "importance": 0.90 },
-    { "id": "ad_server",       "type": "server",  "label": "ADサーバー",       "vuln": 0.30, "importance": 0.95 },
-    { "id": "phishing_email",  "type": "account", "label": "フィッシングメール", "vuln": 0.85, "importance": 0.30 },
-    { "id": "compromised_acc", "type": "account", "label": "侵害アカウント",   "vuln": 0.75, "importance": 0.50 }
+    { "id": "attacker",        "type": "person",  "label": "攻撃者", "label_en": "Attacker",           "vuln": 1.00, "importance": 0.05 },
+    { "id": "contractor",      "type": "person",  "label": "契約社員", "label_en": "Contractor",         "vuln": 0.80, "importance": 0.50 },
+    { "id": "employee",        "type": "person",  "label": "一般社員", "label_en": "Employee",         "vuln": 0.70, "importance": 0.60 },
+    { "id": "admin_staff",     "type": "person",  "label": "管理者", "label_en": "Administrator",           "vuln": 0.50, "importance": 0.90 },
+    { "id": "ceo",             "type": "person",  "label": "社長", "label_en": "CEO",             "vuln": 0.40, "importance": 1.00 },
+    { "id": "employee_pc",     "type": "device",  "label": "社員PC", "label_en": "Employee PC",           "vuln": 0.60, "importance": 0.60 },
+    { "id": "admin_pc",        "type": "device",  "label": "管理者PC", "label_en": "Admin PC",         "vuln": 0.40, "importance": 0.85 },
+    { "id": "ceo_pc",          "type": "device",  "label": "社長PC", "label_en": "CEO's PC",           "vuln": 0.40, "importance": 1.00 },
+    { "id": "email_server",    "type": "server",  "label": "メールサーバー", "label_en": "Mail server",   "vuln": 0.45, "importance": 0.70 },
+    { "id": "file_server",     "type": "server",  "label": "ファイルサーバー", "label_en": "File server", "vuln": 0.50, "importance": 0.90 },
+    { "id": "ad_server",       "type": "server",  "label": "ADサーバー", "label_en": "AD server",       "vuln": 0.30, "importance": 0.95 },
+    { "id": "phishing_email",  "type": "account", "label": "フィッシングメール", "label_en": "Phishing email", "vuln": 0.85, "importance": 0.30 },
+    { "id": "compromised_acc", "type": "account", "label": "侵害アカウント", "label_en": "Compromised account",   "vuln": 0.75, "importance": 0.50 }
   ],
   "edges": [
     { "source": "attacker",        "target": "phishing_email",  "weight": 0.5 },

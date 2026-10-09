@@ -89,8 +89,8 @@ test("ダイアログは <dialog>、ボタンはすべて type を持つ", () =>
 });
 
 test("並べ方の選択肢は成功確率順（既定）とコスト順", () => {
-  assert.match(html, /<option value="prob" selected>/);
-  assert.match(html, /<option value="cost">/);
+  assert.match(html, /<option value="prob" selected[ >]/);
+  assert.match(html, /<option value="cost"[ >]/);
 });
 
 test("ラベルの for は実在する id を指す", () => {

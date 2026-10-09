@@ -35,6 +35,7 @@ const exportBtn   = document.getElementById("exportBtn");
 const fileInput   = document.getElementById("fileInput");
 const nodePopup   = document.getElementById("nodePopup");
 const statusMsg   = document.getElementById("statusMsg");
+const langToggle  = document.getElementById("langToggle");
 
 // 通知UI
 const presetNotification = document.getElementById("presetNotification");
@@ -54,6 +55,7 @@ const nodeDialogTitle = document.getElementById("nodeDialogTitle");
 const nodeDialogError = document.getElementById("nodeDialogError");
 const nodeDialogId = document.getElementById("nodeDialogId");
 const nodeDialogLabel = document.getElementById("nodeDialogLabel");
+const nodeDialogLabelEn = document.getElementById("nodeDialogLabelEn");
 const nodeDialogType = document.getElementById("nodeDialogType");
 const nodeDialogVuln = document.getElementById("nodeDialogVuln");
 const nodeDialogImportance = document.getElementById("nodeDialogImportance");
@@ -73,12 +75,17 @@ const edgeDialogCancel = document.getElementById("edgeDialogCancel");
 
 let currentPaths = []; // 探索の結果（findPaths の戻り値）
 let currentMode = "prob"; // 結果を出したときの並べ方
+let resultsShown = false; // 探索を実行したか（到達できない結果も含む）
 let selectedPathIndex = 0; // 現在選択されている経路のインデックス
 let selectedNode = null; // 現在選択されているノード
 let editMode = null; // 'add' or 'edit'
 let notificationTimer = null;
+let lastStatus = null; // 言語を切り替えたときに描き直すため、知らせの作り方を持っておく
+let lastNotification = null;
 
 /* ---------- 文言 ---------- */
+
+const LOCALE_KEY = "ipm_locale";
 
 function t(key, params = {}) {
   const dict = MESSAGES[locale] || MESSAGES.ja;
@@ -90,27 +97,84 @@ function labelOf(n) {
   return core.nodeLabel(n, locale);
 }
 
+function metaTitle(meta, fallback) {
+  if (locale === "en" && meta.title_en) return meta.title_en;
+  return meta.title || fallback;
+}
+
 function graphErrorText(err) {
   if (err instanceof core.GraphError) return t(`graph.${err.code}`, err.params);
   return String(err && err.message ? err.message : err);
 }
 
-/** サイドバー上部の知らせ（kind: "info" | "error"）。空文字で消す */
-function showStatus(text, kind = "info") {
+/**
+ * サイドバー上部の知らせ（kind: "info" | "error"）。build は文言を返す関数で、言語を切り替えると呼び直す。
+ * 引数なしで消す。
+ */
+function showStatus(build = null, kind = "info") {
+  lastStatus = build ? { build, kind } : null;
+  const text = build ? build() : "";
   statusMsg.textContent = text;
   statusMsg.classList.toggle("is-error", kind === "error");
   statusMsg.hidden = !text;
+}
+
+function readSavedLocale() {
+  try {
+    return localStorage.getItem(LOCALE_KEY);
+  } catch {
+    return null; // ストレージが使えない環境でも動く
+  }
+}
+
+function saveLocale(value) {
+  try {
+    localStorage.setItem(LOCALE_KEY, value);
+  } catch {
+    // 保存できなくても表示は切り替える
+  }
+}
+
+/** 固定の文言（data-i18n・data-i18n-aria・data-i18n-title）を辞書から入れる */
+function applyStaticText() {
+  document.documentElement.lang = locale;
+  document.querySelectorAll("[data-i18n]").forEach(el => { el.textContent = t(el.dataset.i18n); });
+  document.querySelectorAll("[data-i18n-aria]").forEach(el => el.setAttribute("aria-label", t(el.dataset.i18nAria)));
+  document.querySelectorAll("[data-i18n-title]").forEach(el => { el.title = t(el.dataset.i18nTitle); });
+}
+
+/** 言語を切り替える。計算はし直さず、持っている結果を描き直すだけにする */
+function setLocale(next) {
+  locale = next === "en" ? "en" : "ja";
+  applyStaticText();
+  if (!data) return;
+  buildUIOptions(data.nodes, { keepSelection: true });
+  if (nodeSel) {
+    nodeSel.attr("aria-label", d => `${labelOf(d)} (${d.id})`);
+    nodeSel.select("text").text(d => labelOf(d));
+  }
+  renderNodeInfo(selectedNode);
+  if (selectedNode && !nodePopup.hidden) showNodeInfo(selectedNode);
+  if (resultsShown) {
+    stopAnimation();
+    renderKPathsResult();
+  } else {
+    pathsListEl.replaceChildren(emptyState());
+  }
+  if (lastStatus) showStatus(lastStatus.build, lastStatus.kind);
+  if (lastNotification && !presetNotification.hidden) renderNotification();
+  if (nodeDialog.open) nodeDialogTitle.textContent = t(editMode === "add" ? "dialog.addTitle" : "dialog.editTitle");
 }
 
 /* ---------- 読み込み ---------- */
 
 function fallbackGraph() {
   return core.normalizeGraph({
-    meta: { title: t("fallback.title") },
+    meta: { title: MESSAGES.ja["fallback.title"], title_en: MESSAGES.en["fallback.title"] },
     nodes: [
-      { id: "ext", label: MESSAGES.ja["fallback.ext"], label_en: "Outside", type: "gateway", vuln: 1, importance: 0.1 },
-      { id: "pc1", label: MESSAGES.ja["fallback.pc"], label_en: "Employee PC", type: "device", vuln: 0.6, importance: 0.4 },
-      { id: "srv1", label: MESSAGES.ja["fallback.srv"], label_en: "File server", type: "server", vuln: 0.5, importance: 0.9 }
+      { id: "ext", label: MESSAGES.ja["fallback.ext"], label_en: MESSAGES.en["fallback.ext"], type: "gateway", vuln: 1, importance: 0.1 },
+      { id: "pc1", label: MESSAGES.ja["fallback.pc"], label_en: MESSAGES.en["fallback.pc"], type: "device", vuln: 0.6, importance: 0.4 },
+      { id: "srv1", label: MESSAGES.ja["fallback.srv"], label_en: MESSAGES.en["fallback.srv"], type: "server", vuln: 0.5, importance: 0.9 }
     ],
     edges: [
       { source: "ext", target: "pc1", weight: 1.0 },
@@ -293,11 +357,12 @@ function renderNodeInfo(n) {
     nodeInfoEl.textContent = t("info.empty");
     return;
   }
+  // 英語表示では英語ラベル（なければ元のラベル）だけを出す。日本語表示では両方
   nodeInfoEl.append(
     kv(t("info.id"), n.id),
-    kv(t("info.label"), n.label)
+    kv(t("info.label"), labelOf(n))
   );
-  if (n.label_en) nodeInfoEl.append(kv(t("info.labelEn"), n.label_en));
+  if (locale === "ja" && n.label_en) nodeInfoEl.append(kv(t("info.labelEn"), n.label_en));
   nodeInfoEl.append(
     kv(t("info.type"), n.type || "-"),
     kv(t("info.vuln"), String(n.vuln)),
@@ -388,10 +453,10 @@ analyzeBtn.addEventListener("click", ()=>{
   const sId = startSelect.value;
   const gId = goalSelect.value;
   if (!sId || !gId || sId === gId) {
-    showStatus(t("err.selectEndpoints"), "error");
+    showStatus(() => t("err.selectEndpoints"), "error");
     return;
   }
-  showStatus("");
+  showStatus();
   const nodePenalty = core.sanitizePenalty(nodePenaltyInput.value);
   const k = core.sanitizeK(kPathsInput.value);
   nodePenaltyInput.value = String(nodePenalty);
@@ -399,6 +464,7 @@ analyzeBtn.addEventListener("click", ()=>{
 
   currentMode = rankModeSelect.value === "cost" ? "cost" : "prob";
   currentPaths = core.findPaths(data, sId, gId, { mode: currentMode, k, nodePenalty });
+  resultsShown = true;
   selectedPathIndex = 0;
   stopAnimation();
   renderKPathsResult();
@@ -442,16 +508,19 @@ fileInput.addEventListener("change", async (e)=>{
     }
     const { graph, warnings } = core.parseGraphText(await f.text());
     setGraph(graph);
-    const title = graph.meta.title || f.name;
+    const codes = [...new Set(warnings.map(w => w.code))];
     if (warnings.length) {
-      const list = [...new Set(warnings.map(w => t(`warn.${w.code}`)))].join("、");
-      showStatus(t("warn.summary", { title, count: warnings.length, list }));
+      showStatus(() => t("warn.summary", {
+        title: metaTitle(graph.meta, f.name),
+        count: warnings.length,
+        list: codes.map(code => t(`warn.${code}`)).join(t("list.sep"))
+      }));
     } else {
-      showStatus("");
+      showStatus();
     }
-    showPresetNotification(title, graph.nodes.length, graph.edges.length);
+    showPresetNotification(graph, f.name);
   }catch(err){
-    showStatus(t("err.importFailed", { reason: graphErrorText(err) }), "error");
+    showStatus(() => t("err.importFailed", { reason: graphErrorText(err) }), "error");
   }finally{
     fileInput.value = "";
   }
@@ -480,6 +549,7 @@ function emptyState() {
 function resetResults() {
   stopAnimation();
   currentPaths = [];
+  resultsShown = false;
   selectedPathIndex = 0;
   pathsListEl.replaceChildren(emptyState());
   resultsSummaryEl.textContent = "";
@@ -745,6 +815,7 @@ addNodeBtn.addEventListener('click', () => {
   nodeDialogTitle.textContent = t("dialog.addTitle");
   nodeDialogId.value = core.nextNodeId(data.nodes);
   nodeDialogLabel.value = '';
+  nodeDialogLabelEn.value = '';
   setTypeOptions('node');
   nodeDialogVuln.value = 0.5;
   nodeDialogImportance.value = 0.5;
@@ -760,6 +831,7 @@ editNodeBtn.addEventListener('click', () => {
   nodeDialogTitle.textContent = t("dialog.editTitle");
   nodeDialogId.value = selectedNode.id;
   nodeDialogLabel.value = selectedNode.label;
+  nodeDialogLabelEn.value = selectedNode.label_en || '';
   setTypeOptions(selectedNode.type);
   nodeDialogVuln.value = selectedNode.vuln;
   nodeDialogImportance.value = selectedNode.importance;
@@ -789,6 +861,7 @@ deleteNodeBtn.addEventListener('click', () => {
 nodeDialogSave.addEventListener('click', () => {
   const id = nodeDialogId.value.trim();
   const label = nodeDialogLabel.value.trim() || id;
+  const labelEn = nodeDialogLabelEn.value.trim();
   const type = nodeDialogType.value || 'node';
   const vuln = core.toUnit(nodeDialogVuln.value, 0.5);
   const importance = core.toUnit(nodeDialogImportance.value, 0.5);
@@ -800,7 +873,7 @@ nodeDialogSave.addEventListener('click', () => {
     dialogError(nodeDialogError, t("err.idPattern"));
     return;
   }
-  if (label.length > core.LIMITS.maxLabelLength) {
+  if (label.length > core.LIMITS.maxLabelLength || labelEn.length > core.LIMITS.maxLabelLength) {
     dialogError(nodeDialogError, t("err.labelTooLong"));
     return;
   }
@@ -812,14 +885,16 @@ nodeDialogSave.addEventListener('click', () => {
       return;
     }
     const newNode = {id, label, type, vuln, importance};
+    if (labelEn) newNode.label_en = labelEn;
     if (!auto && core.COLOR_PATTERN.test(color)) newNode.color = color.toLowerCase();
     data.nodes.push(newNode);
   } else if (editMode === 'edit' && selectedNode) {
     // 既存ノードを更新
     const node = data.nodes.find(n => n.id === selectedNode.id);
     if (node) {
-      if (label !== node.label) delete node.label_en; // 日本語のラベルを変えたら古い英語ラベルは外す
       node.label = label;
+      if (labelEn) node.label_en = labelEn;
+      else delete node.label_en;
       node.type = type;
       node.vuln = vuln;
       node.importance = importance;
@@ -851,7 +926,7 @@ nodeDialogType.addEventListener('change', () => {
 // エッジ追加ボタン
 addEdgeBtn.addEventListener('click', () => {
   if (!data || data.nodes.length < 2) {
-    showStatus(t("err.needTwoNodes"), "error");
+    showStatus(() => t("err.needTwoNodes"), "error");
     return;
   }
   edgeDialogSource.value = startSelect.value || data.nodes[0].id;
@@ -901,28 +976,25 @@ for (const dlg of [nodeDialog, edgeDialog]) {
 loadPresetBtn.addEventListener('click', async () => {
   const preset = presetSelect.value;
   if (!preset) {
-    showStatus(t("err.selectPreset"), "error");
+    showStatus(() => t("err.selectPreset"), "error");
     return;
   }
 
   try {
     const graph = await loadSample(preset);
     setGraph(graph);
-    showStatus("");
+    showStatus();
     // 通知を表示
-    showPresetNotification(graph.meta.title || preset, graph.nodes.length, graph.edges.length);
+    showPresetNotification(graph, preset);
   } catch {
-    showStatus(t("err.presetLoad"), "error");
+    showStatus(() => t("err.presetLoad"), "error");
   }
 });
 
-// 読み込みの通知を表示
-function showPresetNotification(title, nodeCount, edgeCount) {
-  presetNotificationTitle.textContent = t("notify.loaded");
-  const strong = document.createElement("strong");
-  strong.textContent = title;
-  presetNotificationDetail.replaceChildren(strong, document.createElement("br"),
-    t("notify.detail", { nodes: nodeCount, edges: edgeCount }));
+// 読み込みの通知を表示（fallback はタイトルがないときの名前）
+function showPresetNotification(graph, fallback) {
+  lastNotification = { meta: graph.meta, fallback, nodes: graph.nodes.length, edges: graph.edges.length };
+  renderNotification();
 
   presetNotification.classList.remove('hiding');
   presetNotification.hidden = false;
@@ -930,6 +1002,15 @@ function showPresetNotification(title, nodeCount, edgeCount) {
   // 3秒後に自動で閉じる
   clearTimeout(notificationTimer);
   notificationTimer = setTimeout(hidePresetNotification, 3000);
+}
+
+function renderNotification() {
+  const n = lastNotification;
+  presetNotificationTitle.textContent = t("notify.loaded");
+  const strong = document.createElement("strong");
+  strong.textContent = metaTitle(n.meta, n.fallback);
+  presetNotificationDetail.replaceChildren(strong, document.createElement("br"),
+    t("notify.detail", { nodes: n.nodes, edges: n.edges }));
 }
 
 // 通知を閉じる
@@ -947,6 +1028,15 @@ presetNotificationClose.addEventListener('click', hidePresetNotification);
 
 /* ---------- 起動 ---------- */
 
+// 言語の切り替え（?lang= → 保存した選択 → ブラウザーの言語）
+langToggle.addEventListener('click', () => {
+  const next = locale === "ja" ? "en" : "ja";
+  saveLocale(next);
+  setLocale(next);
+});
+
+locale = core.resolveLocale({ query: location.search, saved: readSavedLocale(), languages: navigator.languages || [] });
+applyStaticText();
 updateModeFields();
 loadSample("sample-facility")
   .then(setGraph)

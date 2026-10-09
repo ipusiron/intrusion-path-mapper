@@ -17,17 +17,19 @@
 </head>
 <body>
   <noscript>
-    <p class="noscript">このツールは JavaScript を使います。ブラウザーの設定で JavaScript を有効にしてください。<br>
+    <p class="noscript">このツールはJavaScriptを使います。ブラウザーの設定でJavaScriptを有効にしてください。<br>
     This tool requires JavaScript. Please enable JavaScript in your browser.</p>
   </noscript>
   <header class="app-header">
-    <h1>Intrusion Path Mapper - 侵入経路マッピングツール</h1>
+    <h1 data-i18n="app.title">Intrusion Path Mapper - 侵入経路マッピングツール</h1>
     <div class="actions">
       <label class="file-btn">
-        📁 マップをインポート
+        <span data-i18n="header.import">📁 マップをインポート</span>
         <input type="file" id="fileInput" accept="application/json,.json" />
       </label>
-      <button id="exportBtn" type="button">💾 マップをエクスポート</button>
+      <button id="exportBtn" type="button" data-i18n="header.export">💾 マップをエクスポート</button>
+      <button id="langToggle" type="button" class="lang-btn" data-i18n="lang.toggle" data-i18n-aria="lang.toggleAria"
+        aria-label="英語に切り替える">EN</button>
     </div>
   </header>
 
@@ -36,91 +38,93 @@
       <div id="statusMsg" class="status-msg" role="status" aria-live="polite" hidden></div>
 
       <section class="panel">
-        <h2>プリセット選択</h2>
+        <h2 data-i18n="panel.preset">プリセット選択</h2>
         <div class="field">
-          <label for="presetSelect">サンプルシナリオ</label>
+          <label for="presetSelect" data-i18n="field.sample">サンプルシナリオ</label>
           <select id="presetSelect">
-            <option value="">-- プリセットを選択 --</option>
-            <option value="sample-facility">施設侵入（シンプル）</option>
-            <option value="sample-office-network">オフィスネットワーク攻撃</option>
-            <option value="sample-physical-intrusion">物理的侵入経路</option>
-            <option value="sample-social-engineering">ソーシャルエンジニアリング</option>
+            <option value="" data-i18n="preset.none">-- プリセットを選択 --</option>
+            <option value="sample-facility" data-i18n="preset.facility">施設侵入（シンプル）</option>
+            <option value="sample-office-network" data-i18n="preset.office">オフィスネットワーク攻撃</option>
+            <option value="sample-physical-intrusion" data-i18n="preset.physical">物理的侵入経路</option>
+            <option value="sample-social-engineering" data-i18n="preset.social">ソーシャルエンジニアリング</option>
           </select>
         </div>
-        <button id="loadPresetBtn" type="button" class="preset-load-btn">プリセット読込</button>
+        <button id="loadPresetBtn" type="button" class="preset-load-btn" data-i18n="btn.loadPreset">プリセット読込</button>
       </section>
 
       <section class="panel">
-        <h2>解析設定</h2>
+        <h2 data-i18n="panel.analysis">解析設定</h2>
         <div class="field">
-          <label for="startSelect">初期侵入点</label>
+          <label for="startSelect" data-i18n="field.start">初期侵入点</label>
           <select id="startSelect"></select>
         </div>
         <div class="field">
-          <label for="goalSelect">攻撃目標</label>
+          <label for="goalSelect" data-i18n="field.goal">攻撃目標</label>
           <select id="goalSelect"></select>
         </div>
         <div class="field">
-          <label for="rankMode">並べ方</label>
+          <label for="rankMode" data-i18n="field.rankMode">並べ方</label>
           <select id="rankMode">
-            <option value="prob" selected>成功確率の高い順</option>
-            <option value="cost">コストの低い順</option>
+            <option value="prob" selected data-i18n="mode.prob">成功確率の高い順</option>
+            <option value="cost" data-i18n="mode.cost">コストの低い順</option>
           </select>
         </div>
         <div class="field">
-          <label for="kPaths">経路の数 K (1〜10)</label>
+          <label for="kPaths" data-i18n="field.k">経路の数K（1〜10）</label>
           <input id="kPaths" type="number" value="3" min="1" max="10" step="1" inputmode="numeric" />
         </div>
         <div class="field">
-          <label for="nodePenalty">ノード難易度の重み (0〜2、コスト順のみ)</label>
+          <label for="nodePenalty" data-i18n="field.penalty">ノード難易度の重み（0〜2、コスト順のみ）</label>
           <input id="nodePenalty" type="number" value="0.4" min="0" max="2" step="0.1" inputmode="decimal" />
         </div>
-        <button id="analyzeBtn" type="button" class="primary-action-btn">経路を探索</button>
+        <button id="analyzeBtn" type="button" class="primary-action-btn" data-i18n="btn.analyze">経路を探索</button>
 
         <div id="results" class="results">
-          <h3>結果</h3>
+          <h3 data-i18n="results.title">結果</h3>
           <p id="resultsSummary" class="results-summary" aria-live="polite"></p>
           <div id="pathsList" class="paths-list"></div>
         </div>
       </section>
 
       <section class="panel">
-        <h2>編集</h2>
+        <h2 data-i18n="panel.edit">編集</h2>
         <div class="edit-controls">
-          <button id="addNodeBtn" type="button" class="edit-btn">+ ノード追加</button>
-          <button id="addEdgeBtn" type="button" class="edit-btn">+ エッジ追加</button>
+          <button id="addNodeBtn" type="button" class="edit-btn" data-i18n="btn.addNode">+ ノード追加</button>
+          <button id="addEdgeBtn" type="button" class="edit-btn" data-i18n="btn.addEdge">+ エッジ追加</button>
         </div>
       </section>
 
       <section class="panel">
         <div class="panel-header">
-          <h2>ノード情報</h2>
+          <h2 data-i18n="panel.nodeInfo">ノード情報</h2>
           <div id="nodeEditPanel" class="node-edit-panel-inline" hidden>
-            <button id="editNodeBtn" type="button" class="icon-btn" title="ノードを編集" aria-label="ノードを編集">✏️</button>
-            <button id="deleteNodeBtn" type="button" class="icon-btn danger" title="ノードを削除" aria-label="ノードを削除">🗑️</button>
+            <button id="editNodeBtn" type="button" class="icon-btn" title="ノードを編集" aria-label="ノードを編集"
+              data-i18n-aria="info.edit" data-i18n-title="info.edit">✏️</button>
+            <button id="deleteNodeBtn" type="button" class="icon-btn danger" title="ノードを削除" aria-label="ノードを削除"
+              data-i18n-aria="info.delete" data-i18n-title="info.delete">🗑️</button>
           </div>
         </div>
-        <div id="nodeInfo" class="node-info">（ノードをクリック）</div>
+        <div id="nodeInfo" class="node-info" data-i18n="info.empty">（ノードをクリック）</div>
       </section>
 
       <section class="panel">
-        <h2>ヒント</h2>
+        <h2 data-i18n="panel.tips">ヒント</h2>
         <ul class="tips">
-          <li>ノードをドラッグしてレイアウト調整できます。Tab キーでノードを選び、Enter で情報を出せます</li>
-          <li>ノードの <code>vuln</code> は、手前のノードにいる攻撃者がそのノードを突破できる確率です</li>
-          <li>成功確率は、開始ノードを除く経路上のノードの <code>vuln</code> の積です</li>
-          <li>エッジの <code>weight</code> は移動コストです（小さいほど容易）。コスト順で使います</li>
+          <li data-i18n="tips.drag">ノードをドラッグしてレイアウト調整できます。Tabキーでノードを選び、Enterで情報を出せます</li>
+          <li data-i18n="tips.vuln">ノードのvulnは、手前のノードにいる攻撃者がそのノードを突破できる確率です</li>
+          <li data-i18n="tips.prob">成功確率は、開始ノードを除く経路上のノードのvulnの積です</li>
+          <li data-i18n="tips.weight">エッジのweightは移動コストです（小さいほど容易）。コスト順で使います</li>
         </ul>
       </section>
     </aside>
 
     <section class="canvas-wrap">
-      <svg id="graph" width="100%" height="100%" role="img" aria-label="侵入経路のマップ"></svg>
+      <svg id="graph" width="100%" height="100%" role="img" aria-label="侵入経路のマップ" data-i18n-aria="graph.aria"></svg>
       <div id="nodePopup" class="node-popup" hidden></div>
 
       <!-- グラフ凡例 -->
       <div class="graph-legend">
-        <div class="legend-title">ノードタイプ</div>
+        <div class="legend-title" data-i18n="legend.title">ノードタイプ</div>
         <div class="legend-items">
           <div class="legend-item"><span class="legend-color type-server"></span> Server</div>
           <div class="legend-item"><span class="legend-color type-device"></span> Device</div>
@@ -136,10 +140,11 @@
         <div class="notification-content">
           <div class="notification-icon" aria-hidden="true">✓</div>
           <div class="notification-message">
-            <div class="notification-title" id="presetNotificationTitle">読み込み完了</div>
+            <div class="notification-title" id="presetNotificationTitle" data-i18n="notify.loaded">読み込み完了</div>
             <div class="notification-detail" id="presetNotificationDetail"></div>
           </div>
-          <button id="presetNotificationClose" type="button" class="notification-close" aria-label="通知を閉じる">×</button>
+          <button id="presetNotificationClose" type="button" class="notification-close" aria-label="通知を閉じる"
+            data-i18n-aria="notify.close">×</button>
         </div>
       </div>
     </section>
@@ -148,7 +153,7 @@
   <!-- ノード編集ダイアログ -->
   <dialog id="nodeDialog" class="dialog" aria-labelledby="nodeDialogTitle">
     <div class="dialog-content">
-      <h3 id="nodeDialogTitle">ノード編集</h3>
+      <h3 id="nodeDialogTitle" data-i18n="dialog.editTitle">ノード編集</h3>
       <p id="nodeDialogError" class="dialog-error" role="alert" hidden></p>
       <div class="form-field">
         <label for="nodeDialogId">ID:</label>
@@ -157,6 +162,10 @@
       <div class="form-field">
         <label for="nodeDialogLabel">Label:</label>
         <input type="text" id="nodeDialogLabel" maxlength="200" autocomplete="off" />
+      </div>
+      <div class="form-field">
+        <label for="nodeDialogLabelEn">Label (English):</label>
+        <input type="text" id="nodeDialogLabelEn" maxlength="200" autocomplete="off" />
       </div>
       <div class="form-field">
         <label for="nodeDialogType">Type:</label>
@@ -179,16 +188,17 @@
         <input type="number" id="nodeDialogImportance" min="0" max="1" step="0.05" inputmode="decimal" />
       </div>
       <div class="form-field">
-        <label for="nodeDialogColor">Color (カスタム色):</label>
+        <label for="nodeDialogColor" data-i18n="dialog.color">Color (カスタム色):</label>
         <div class="color-picker-row">
           <input type="color" id="nodeDialogColor" />
-          <label class="check-label"><input type="checkbox" id="nodeDialogColorAuto" /> 種類に応じた自動の色</label>
-          <button type="button" id="nodeDialogColorReset" class="color-reset-btn">リセット</button>
+          <label class="check-label"><input type="checkbox" id="nodeDialogColorAuto" />
+            <span data-i18n="dialog.colorAuto">種類に応じた自動の色</span></label>
+          <button type="button" id="nodeDialogColorReset" class="color-reset-btn" data-i18n="dialog.colorReset">リセット</button>
         </div>
       </div>
       <div class="dialog-buttons">
-        <button id="nodeDialogSave" type="button" class="dialog-btn primary">保存</button>
-        <button id="nodeDialogCancel" type="button" class="dialog-btn">キャンセル</button>
+        <button id="nodeDialogSave" type="button" class="dialog-btn primary" data-i18n="dialog.save">保存</button>
+        <button id="nodeDialogCancel" type="button" class="dialog-btn" data-i18n="dialog.cancel">キャンセル</button>
       </div>
     </div>
   </dialog>
@@ -196,7 +206,7 @@
   <!-- エッジ追加ダイアログ -->
   <dialog id="edgeDialog" class="dialog" aria-labelledby="edgeDialogTitle">
     <div class="dialog-content">
-      <h3 id="edgeDialogTitle">エッジ追加</h3>
+      <h3 id="edgeDialogTitle" data-i18n="dialog.edgeTitle">エッジ追加</h3>
       <p id="edgeDialogError" class="dialog-error" role="alert" hidden></p>
       <div class="form-field">
         <label for="edgeDialogSource">From (Source):</label>
@@ -211,18 +221,16 @@
         <input type="number" id="edgeDialogWeight" min="0" step="0.1" value="1.0" inputmode="decimal" />
       </div>
       <div class="dialog-buttons">
-        <button id="edgeDialogSave" type="button" class="dialog-btn primary">追加</button>
-        <button id="edgeDialogCancel" type="button" class="dialog-btn">キャンセル</button>
+        <button id="edgeDialogSave" type="button" class="dialog-btn primary" data-i18n="dialog.add">追加</button>
+        <button id="edgeDialogCancel" type="button" class="dialog-btn" data-i18n="dialog.cancel">キャンセル</button>
       </div>
     </div>
   </dialog>
 
   <footer>
     <div class="footer">
-      🔗 GitHubリポジトリはこちら（
-      <a href="https://github.com/ipusiron/intrusion-path-mapper" target="_blank" rel="noopener noreferrer">
-        ipusiron/intrusion-path-mapper
-      </a> ）
+      <span data-i18n="footer.lead">🔗 GitHubリポジトリー</span>
+      <a href="https://github.com/ipusiron/intrusion-path-mapper" target="_blank" rel="noopener noreferrer">ipusiron/intrusion-path-mapper</a>
     </div>
   </footer>
 </body>
