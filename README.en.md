@@ -30,7 +30,7 @@ Try it directly in your browser.
 
 >![Physical intrusion searched by highest success probability](assets/en/screenshot.png)
 >
->*Three paths of the physical intrusion map, by success probability*
+>*By success probability; dashed rings are on all three paths*
 
 >![The same map ordered by lowest cost](assets/en/screenshot2.png)
 >
@@ -40,6 +40,10 @@ Try it directly in your browser.
 >
 >*After the animation, nodes outside the path are dimmed*
 
+>![The risk-by-target list and the path to the employee](assets/en/screenshot4.png)
+>
+>*Risk by target: the employee ranks above the server room*
+
 ---
 
 ## ✨ Features
@@ -48,8 +52,10 @@ Try it directly in your browser.
   - Highest success probability (default): Yen's K shortest paths with `−ln(vuln)` as the edge weight, which gives the paths with the largest product of probabilities, exactly
   - Lowest cost: the smallest sum of `weight + node difficulty weight × (1 − vuln)`
 - Show the success probability, risk, cost and hops of each path (three significant digits instead of rounding to 0.0%)
-- Highlight the selected path on the map and step through it with the ▶ button
-- Add, edit and delete nodes and edges in the browser (type, vuln, importance, color and English label)
+- Highlight the selected path on the map and step through it with the ▶ button. Everything off the path can be dimmed
+- Mark the nodes that all paths shown pass through with dashed rings and list them in the results
+- Risk by target: for every node reachable from the start, compute the best success probability × importance and list the top 10 (the current target is added at the end even when it ranks 11th or lower)
+- Add, edit and delete nodes and edges in the browser (nodes: type, vuln, importance, color and English label; edges: weight. The reverse edge can be added at the same time)
 - Import and export JSON (the file is validated on import and every fix is reported)
 - Four preset scenarios (facility intrusion, office network, physical intrusion, social engineering)
 - Zoom with the wheel or a pinch, pan by dragging the background, and "Fit to view" to bring the whole map back
@@ -71,11 +77,14 @@ Try it directly in your browser.
    - Choose "Order by" and "Number of paths K" (the cost order also uses "Node difficulty weight")
    - Press "Find paths"
 3. Read the results
-   - Click a path to highlight it on the map
+   - Click a path to highlight it on the map ("Dim everything off the path" dims the rest)
+   - Nodes with a dashed ring are on all paths shown
    - Press ▶ to step from the start to the target
+   - Use "Risk by target" to compare the risk of other nodes as targets, and "Search this target" to switch the target
 4. Edit the map (optional)
-   - Add elements with "+ Add node" and "+ Add edge"
+   - Add elements with "+ Add node" and "+ Add edge" ("Also add the reverse edge" makes a two-way edge)
    - Click a node and use "✏️" to edit or "🗑️" to delete it. "Set as start" and "Set as target" in the node details fill the selectors
+   - Edit or delete an edge by clicking its line on the map, or from the "Outgoing edges" and "Incoming edges" lists in the node details
    - Save the map as JSON with "💾 Export map"
 
 Editing the map clears the previous results, because old paths no longer match the new map. Switching the language only changes the display language; the results are not recalculated.
@@ -128,7 +137,11 @@ Rough guide for vuln (illustrative values):
 
 ### Risk
 
-Risk = success probability × importance of the target node (likelihood × impact). Among paths to the same target it follows the success probability, and it makes a difference when you compare different targets.
+Risk = success probability × importance of the target node (likelihood × impact). importance is the damage if the node is taken over, so passages such as doors and windows get low values. Among paths to the same target it follows the success probability, so it is used to compare different targets.
+
+### Risk by target
+
+One run of Dijkstra's algorithm with `−ln(vuln)` weights gives the best success probability from the start node to every node at once. Each value is multiplied by the node's importance and the nodes are sorted by risk. In the physical intrusion map (from Outside), the employee ranks first (39.9% × 0.6 = 0.239), while the most important server room (2.66% × 0.95 = 0.0253) ranks 11th.
 
 ### Two orders
 
@@ -141,6 +154,10 @@ The two rankings can disagree. In the physical intrusion map (default start and 
 ### K paths (Yen's algorithm)
 
 Yen's algorithm (1971) finds K loopless paths in order of length. It finds the first path with Dijkstra's algorithm, and for each next path it branches off from the nodes of the previous path and picks the shortest candidate. Dijkstra's algorithm uses a binary heap. The tests check that, for every start and target pair in the four samples, the results match a brute-force enumeration of all simple paths.
+
+### Nodes on all paths shown
+
+When two or more paths are shown, the nodes that every path passes through (other than the start and the target) get a dashed ring. In the physical intrusion map (by success probability) they are 2F corridor, IC card door and Server room door for K=3, and IC card door and Server room door for K=5 and K=10. This is about the K paths shown, so blocking such a node does not necessarily cut every path.
 
 ### Preset scenarios
 
@@ -175,7 +192,7 @@ Nodes (nodes)
 - `label_en`: name shown in the English UI (optional, up to 200 characters)
 - `type`: `gateway`, `device`, `server`, `account`, `room`, `person` or `node`. Custom types made of lowercase letters, digits, `_` and `-` also work (they get the `node` color)
 - `vuln`: probability of getting through (0-1, defaults to 0.5)
-- `importance`: importance as an asset (0-1, defaults to 0.5)
+- `importance`: damage if the node is taken over (its value as an asset; 0-1, defaults to 0.5. Give passages such as doors and windows low values)
 - `color` (optional): custom color in the form `#rrggbb`
 
 Edges (edges)
@@ -206,6 +223,14 @@ As a guide for edge weights: 0.5 = open and easy, 1.0 = standard, 2.0 = multi-fa
 
 ## 🎯 Use Cases
 
+Ways of using this tool in particular
+- Put "the cheapest path" and "the easiest path" side by side: facility staff or students rank the same map by lowest cost and by highest success probability and discuss why the top path changes. In the physical intrusion map, the path through the 2F window (2.66%) is about nine times easier than the front-door path (0.292%)
+- If you can watch only one spot: draw a floor plan of your home or a small office and look for nodes whose dashed ring (on all paths shown) stays as K grows. In the physical intrusion map, the IC card door and the server room door remain even at K=10, which makes them candidates for a single camera or alarm (the result is about the paths shown and does not guarantee that every path is cut)
+- Read attack paths as dependency paths and look for single points of failure: model an approval chain (request → manager → director → accounting) or a supply chain (parts → factory → warehouse → store) as nodes, with vuln as the probability that each stage works. The success probability becomes the probability of getting all the way through, and the dashed rings become single points of failure that stop everything when they stop (failures are assumed to be independent; capacity and time are not modeled)
+- A defense budget game (tabletop exercise): the attack side builds a map, and the defense side spends a budget of 10 points, one point per 0.1 lowered vuln. The defense competes on how far it can lower the success probability of the top path, and sees another path take first place as soon as one path is hardened
+- The riskiest node is not always the most important asset: use risk by target to decide what to protect first. In the physical intrusion map (from Outside), the easy-to-reach employee ranks first (39.9% × 0.6 = 0.239), while the most important server room (2.66% × 0.95 = 0.0253) ranks 11th. This is material for discussing whether to train people before hardening equipment
+- Read it as information: `−ln(vuln)` is the self-information (in nats) of an event with probability vuln, so the top path in the success-probability order is the path with the smallest total surprise. The top path of the physical intrusion map totals 3.63 nats (5.23 bits), and its last step (the server room, vuln 0.2) accounts for 1.61 nats. Learning self-information first with [InfoQuantity Academy](https://ipusiron.github.io/infoquantity-academy/) (Day073) shows how the two ideas connect
+
 Education
 - In an information security class, students turn a floor plan of their school into nodes and edges and explain, with a product of probabilities, why "the cheapest way in" and "the most likely way in" are different paths
 - In an algorithms class, students compare hand calculations with the tool to check the K paths from Yen's algorithm and the logarithm trick that turns a product into a sum
@@ -214,7 +239,6 @@ Education
 Work (outside security)
 - Facility managers and general affairs staff draw the routes of visitors, cleaners and deliveries, change the vuln of the reception desk or doors, and compare where the easiest path moves, as material for discussing guard placement (the values are the staff's estimates and do not replace an on-site assessment)
 - Internal auditors and risk managers model an approval flow from request to payment as nodes and list the paths that fraud could take
-- Logistics and IT operations staff put the probability that each site or line is up into vuln and rank the paths most likely to get through (mind the assumption that failures are independent)
 
 Home and family
 - When reviewing home security, the family makes the front door, windows, back door and balcony into nodes and checks where the easiest way in moves when an extra lock lowers a vuln
@@ -248,7 +272,7 @@ npm test
 
 - Runs on Node.js 22 or later with no dependencies (`node --test`)
 - GitHub Actions runs it on every push and pull request
-- Logic (`js/ipm-core.js`): validation and normalization, export and re-import round trips, Yen's algorithm matching a brute-force enumeration of all simple paths (cost order and success-probability order), metrics and display digits
+- Logic (`js/ipm-core.js`): validation and normalization, export and re-import round trips, Yen's algorithm matching a brute-force enumeration of all simple paths (cost order and success-probability order), risk by target matching the brute force, adding, editing and deleting edges, metrics and display digits
 - Page and documents: CSP and HTML structure, SHA-256 of the self-hosted D3, color contrast (4.5:1 or more), matching Japanese and English dictionaries with no Japanese in the English strings, README numbers and directory structure
 
 ---
@@ -303,10 +327,12 @@ intrusion-path-mapper/
 │   ├── en/                               # English screens
 │   │   ├── screenshot.png                # Physical intrusion by highest success probability
 │   │   ├── screenshot2.png               # The same map by lowest cost
-│   │   └── screenshot3.png               # After a path animation finished
+│   │   ├── screenshot3.png               # After a path animation finished
+│   │   └── screenshot4.png               # Risk by target
 │   ├── screenshot.png                    # Japanese: physical intrusion by highest success probability
 │   ├── screenshot2.png                   # Japanese: the same map by lowest cost
-│   └── screenshot3.png                   # Japanese: after a path animation finished
+│   ├── screenshot3.png                   # Japanese: after a path animation finished
+│   └── screenshot4.png                   # Japanese: risk by target
 ├── css/                                  # Stylesheets
 │   └── style.css                         # Colors, layout and responsive rules
 ├── js/                                   # JavaScript

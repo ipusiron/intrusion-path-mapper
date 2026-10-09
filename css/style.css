@@ -255,6 +255,7 @@ select, input[type=number] {
 .target-risk-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
 .target-risk-item { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; background: rgba(15, 20, 34, 0.6); }
 .target-risk-item.is-current { border-color: var(--accent2); }
+.target-risk-item.is-extra { margin-top: 6px; border-style: dashed; }
 .target-risk-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .target-risk-name { font-size: 13px; font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
 .target-risk-head .small-btn { flex: 0 0 auto; }

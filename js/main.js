@@ -627,10 +627,14 @@ function renderTargetRisks() {
   }
   const shown = riskRows.slice(0, RISK_ROWS_SHOWN);
   targetRiskNote.textContent = t("risk.note", { start: labelOf(start), count: riskRows.length, shown: shown.length });
-  shown.forEach((row, i) => {
+  // いまの目標が上位に入らないときは、本当の順位をつけて末尾に足す（目標が一覧から消えないように）
+  const goalRank = riskRows.findIndex(r => r.id === goalSelect.value);
+  const items = shown.map((row, i) => [row, i]);
+  if (goalRank >= shown.length) items.push([riskRows[goalRank], goalRank]);
+  items.forEach(([row, i]) => {
     const node = nodeById(row.id);
     const li = document.createElement("li");
-    li.className = "target-risk-item" + (row.id === goalSelect.value ? " is-current" : "");
+    li.className = "target-risk-item" + (row.id === goalSelect.value ? " is-current" : "") + (i >= shown.length ? " is-extra" : "");
     const head = document.createElement("div");
     head.className = "target-risk-head";
     const name = document.createElement("span");
