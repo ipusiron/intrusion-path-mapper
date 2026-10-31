@@ -264,7 +264,7 @@ Work (outside security)
 
 Home and family
 - When reviewing home security, the family makes the front door, windows, back door and balcony into nodes and checks where the easiest way in moves when an extra lock lowers a vuln
-- Draw how the family's email, cloud and phone accounts connect, see how far a hijacked email account reaches, and decide the order for turning on two-step verification
+- To see takeover chains and lockouts across a family's email, cloud and phone accounts, use [Day127 Account Domino Mapper](https://ipusiron.github.io/account-domino-mapper/), which applies fixed rules to multi-factor AND, password reuse, recovery lines and the owner being locked out (paths in this tool are single chains, and their success probability is a product of per-node values)
 
 Hobbies and creative work
 - When writing a mystery or an escape game, list intrusion paths from a mansion's floor plan and look for a back way that readers or players are unlikely to notice
